@@ -16,5 +16,18 @@ services:
       timeout: 5s
       retries: 5
 
+  samba:
+    image: dperson/samba:latest
+    container_name: vault404-samba
+    environment:
+      WORKGROUP: VAULTFS
+      USER: vaultfs;vaultfs
+    ports:
+      - "445:445"
+    volumes:
+      - /mnt/vault:/mnt/vault
+      - ./conf/smb.conf:/etc/samba/smb.conf:ro
+    restart: unless-stopped
+
 volumes:
   pgdata:
