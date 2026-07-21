@@ -9,6 +9,7 @@ dependencies = [
     "asyncpg>=0.31",
     "alembic>=1.18",
     "cryptography>=42.0",
+    "pyfuse3>=3.5",
 ]
 
 [project.optional-dependencies]
