@@ -7,6 +7,7 @@ import pyfuse3
 from pyfuse3 import FUSEError, Operations, RequestContext
 
 from vaultfs.application.file_manager import FileManager
+from vaultfs.domain.file_handle import FileHandle
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +106,13 @@ class VaultFS(Operations):
         ctx: RequestContext | None = None,
     ) -> pyfuse3.FileInfo:
         try:
-            node = await self._fm.stat(inode)
+            fh = await self._fm.open(inode, flags)
         except KeyError:
             raise FUSEError(errno.ENOENT)
-        if node.type == "directory":
-            raise FUSEError(errno.EISDIR)
-        return pyfuse3.FileInfo(fh=inode)
+        except PermissionError:
+            raise FUSEError(errno.EACCES)
+        self._handles[fh.node_id] = fh.node_id
+        return pyfuse3.FileInfo(fh=fh.node_id)
 
     async def read(
         self,
@@ -119,7 +121,7 @@ class VaultFS(Operations):
         size: int,
     ) -> bytes:
         try:
-            return await self._fm.read(fh, off, size)
+            return await self._fm.read(FileHandle(node_id=fh), off, size)
         except (KeyError, FileNotFoundError):
             raise FUSEError(errno.ENOENT)
 
@@ -130,7 +132,7 @@ class VaultFS(Operations):
         buf: bytes,
     ) -> int:
         try:
-            return await self._fm.write(fh, off, buf)
+            return await self._fm.write(FileHandle(node_id=fh), off, buf)
         except (KeyError, FileNotFoundError):
             raise FUSEError(errno.ENOENT)
 

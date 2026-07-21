@@ -4,6 +4,10 @@ import pytest
 
 from vaultfs.application.chunk_manager import ChunkManager
 from vaultfs.application.file_manager import FileManager
+from vaultfs.domain.acl import PERM_READ, PERM_WRITE, InMemoryACL
+from vaultfs.domain.chunk_policy import DefaultChunkPolicy
+from vaultfs.domain.exceptions import DirectoryNotEmptyError, PermissionDeniedError
+from vaultfs.domain.file_handle import FileHandle
 from vaultfs.infrastructure.database.repository import FileChunk, Node
 from vaultfs.storage.interface import ChunkId, ChunkInfo
 
@@ -142,6 +146,16 @@ def metadata() -> InMemoryMetadataRepo:
 
 
 @pytest.fixture
+def acl() -> InMemoryACL:
+    return InMemoryACL()
+
+
+@pytest.fixture
+def chunk_policy() -> DefaultChunkPolicy:
+    return DefaultChunkPolicy()
+
+
+@pytest.fixture
 def chunk_manager(metadata: InMemoryMetadataRepo) -> ChunkManager:
     storage = InMemoryChunkStorage()
     cache = InMemoryCache()
@@ -149,8 +163,18 @@ def chunk_manager(metadata: InMemoryMetadataRepo) -> ChunkManager:
 
 
 @pytest.fixture
-async def fm(metadata: InMemoryMetadataRepo, chunk_manager: ChunkManager) -> FileManager:
-    fm = FileManager(metadata=metadata, chunk_manager=chunk_manager)
+async def fm(
+    metadata: InMemoryMetadataRepo,
+    chunk_manager: ChunkManager,
+    acl: InMemoryACL,
+    chunk_policy: DefaultChunkPolicy,
+) -> FileManager:
+    fm = FileManager(
+        metadata=metadata,
+        chunk_manager=chunk_manager,
+        acl=acl,
+        chunk_policy=chunk_policy,
+    )
     await fm.initialize()
     return fm
 
@@ -181,14 +205,79 @@ class TestFileManager:
 
     async def test_stat(self, fm: FileManager) -> None:
         node = await fm.create_file(fm.root_id, "test.txt")
-        stat = await fm.stat(node.id)
-        assert stat.name == "test.txt"
-        assert stat.type == "file"
-        assert stat.parent_id == fm.root_id
+        result = await fm.stat(node.id)
+        assert result.name == "test.txt"
+        assert result.type == "file"
+        assert result.parent_id == fm.root_id
 
     async def test_stat_nonexistent_raises(self, fm: FileManager) -> None:
         with pytest.raises(KeyError):
             await fm.stat(9999)
+
+    async def test_lookup_finds_child(self, fm: FileManager) -> None:
+        await fm.create_file(fm.root_id, "file.txt")
+        result = await fm.lookup(fm.root_id, "file.txt")
+        assert result.name == "file.txt"
+
+    async def test_lookup_raises_not_found(self, fm: FileManager) -> None:
+        with pytest.raises(FileNotFoundError):
+            await fm.lookup(fm.root_id, "nonexistent")
+
+    async def test_open_returns_handle(self, fm: FileManager) -> None:
+        node = await fm.create_file(fm.root_id, "test.txt")
+        fh = await fm.open(node.id)
+        assert isinstance(fh, FileHandle)
+        assert fh.node_id == node.id
+
+    async def test_read_delegates_to_chunk_manager(self, fm: FileManager, metadata) -> None:
+        node = await fm.create_file(fm.root_id, "test.txt")
+        data = b"hello world"
+        await fm.write(FileHandle(node_id=node.id), 0, data)
+        result = await fm.read(FileHandle(node_id=node.id), 0, 5)
+        assert result == b"hello"
+
+    async def test_write_delegates_to_chunk_manager(self, fm: FileManager) -> None:
+        node = await fm.create_file(fm.root_id, "test.txt")
+        data = b"test data"
+        written = await fm.write(FileHandle(node_id=node.id), 0, data)
+        assert written == len(data)
+
+    async def test_read_directory_raises(self, fm: FileManager) -> None:
+        fh = FileHandle(node_id=fm.root_id)
+        with pytest.raises(IsADirectoryError):
+            await fm.read(fh, 0, 10)
+
+    async def test_write_to_directory_raises(self, fm: FileManager) -> None:
+        fh = FileHandle(node_id=fm.root_id)
+        with pytest.raises(IsADirectoryError):
+            await fm.write(fh, 0, b"data")
+
+    async def test_mkdir_creates_node(self, fm: FileManager) -> None:
+        node = await fm.mkdir(fm.root_id, "subdir")
+        assert node.name == "subdir"
+        assert node.type == "directory"
+
+    async def test_unlink_removes_node(self, fm: FileManager) -> None:
+        node = await fm.create_file(fm.root_id, "test.txt")
+        await fm.unlink(fm.root_id, "test.txt")
+        with pytest.raises(KeyError):
+            await fm.stat(node.id)
+
+    async def test_rmdir_fails_if_not_empty(self, fm: FileManager) -> None:
+        subdir = await fm.mkdir(fm.root_id, "subdir")
+        await fm.create_file(subdir.id, "file.txt")
+        with pytest.raises(DirectoryNotEmptyError):
+            await fm.rmdir(fm.root_id, "subdir")
+
+    async def test_rmdir_succeeds_if_empty(self, fm: FileManager) -> None:
+        subdir = await fm.mkdir(fm.root_id, "subdir")
+        await fm.rmdir(fm.root_id, "subdir")
+        with pytest.raises(KeyError):
+            await fm.stat(subdir.id)
+
+    async def test_create_file_uses_chunk_policy(self, fm: FileManager) -> None:
+        node = await fm.create_file(fm.root_id, "video.mp4")
+        assert node.chunk_size == 16 * 1024 * 1024
 
     async def test_delete_file(self, fm: FileManager) -> None:
         node = await fm.create_file(fm.root_id, "test.txt")
@@ -220,29 +309,29 @@ class TestFileManager:
         with pytest.raises(FileNotFoundError):
             await fm.resolve_path("/nonexistent")
 
-    async def test_read_directory_raises(self, fm: FileManager) -> None:
-        with pytest.raises(IsADirectoryError):
-            await fm.read(fm.root_id, 0, 10)
-
-    async def test_write_to_directory_raises(self, fm: FileManager) -> None:
-        with pytest.raises(IsADirectoryError):
-            await fm.write(fm.root_id, 0, b"data")
-
     async def test_rename(self, fm: FileManager) -> None:
         node = await fm.create_file(fm.root_id, "old.txt")
         await fm.rename(node.id, "new.txt")
-        # The Node object should be updated via reference
         stat = await fm.stat(node.id)
         assert stat.name == "new.txt"
 
     async def test_truncate(
-        self, metadata: InMemoryMetadataRepo, chunk_manager: ChunkManager
+        self,
+        metadata: InMemoryMetadataRepo,
+        chunk_manager: ChunkManager,
     ) -> None:
-        fm = FileManager(metadata=metadata, chunk_manager=chunk_manager)
+        acl = InMemoryACL()
+        policy = DefaultChunkPolicy()
+        fm = FileManager(
+            metadata=metadata,
+            chunk_manager=chunk_manager,
+            acl=acl,
+            chunk_policy=policy,
+        )
         await fm.initialize(chunk_size=65536)
         node = await fm.create_file(fm.root_id, "file.txt")
         data = b"x" * 1000
-        await fm.write(node.id, 0, data)
+        await fm.write(FileHandle(node_id=node.id), 0, data)
         children = await fm.list_directory(fm.root_id)
         assert children[0].size == 1000
         await fm.truncate(node.id, 100)
@@ -251,13 +340,44 @@ class TestFileManager:
         assert children[0].size == 100
 
     async def test_initialize_idempotent(self, metadata: InMemoryMetadataRepo) -> None:
+        acl = InMemoryACL()
+        policy = DefaultChunkPolicy()
         storage = InMemoryChunkStorage()
         cache = InMemoryCache()
         cm = ChunkManager(storage=storage, metadata=metadata, cache=cache)
-        fm1 = FileManager(metadata=metadata, chunk_manager=cm)
+        fm1 = FileManager(metadata=metadata, chunk_manager=cm, acl=acl, chunk_policy=policy)
         await fm1.initialize()
         root_id1 = fm1.root_id
 
-        fm2 = FileManager(metadata=metadata, chunk_manager=cm)
+        fm2 = FileManager(metadata=metadata, chunk_manager=cm, acl=acl, chunk_policy=policy)
         await fm2.initialize()
         assert fm2.root_id == root_id1
+
+    async def test_create_file_checks_acl(
+        self,
+        acl: InMemoryACL,
+        fm: FileManager,
+    ) -> None:
+        await acl.set_permission(fm.root_id, "", PERM_READ)
+        with pytest.raises(PermissionDeniedError):
+            await fm.create_file(fm.root_id, "test.txt")
+
+    async def test_unlink_checks_acl(
+        self,
+        acl: InMemoryACL,
+        fm: FileManager,
+    ) -> None:
+        await fm.create_file(fm.root_id, "test.txt")
+        await acl.set_permission(fm.root_id, "", PERM_READ)
+        with pytest.raises(PermissionDeniedError):
+            await fm.unlink(fm.root_id, "test.txt")
+
+    async def test_open_checks_acl(
+        self,
+        acl: InMemoryACL,
+        fm: FileManager,
+    ) -> None:
+        node = await fm.create_file(fm.root_id, "test.txt")
+        await acl.set_permission(node.id, "", PERM_WRITE)
+        with pytest.raises(PermissionDeniedError):
+            await fm.open(node.id, PERM_READ)
