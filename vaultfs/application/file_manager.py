@@ -1,4 +1,8 @@
 from vaultfs.application.chunk_manager import ChunkManager
+from vaultfs.domain.acl import PERM_WRITE, ACLSystem
+from vaultfs.domain.chunk_policy import ChunkPolicy
+from vaultfs.domain.exceptions import DirectoryNotEmptyError
+from vaultfs.domain.file_handle import FileHandle
 from vaultfs.infrastructure.database.repository import MetadataRepository, Node
 
 
@@ -7,11 +11,14 @@ class FileManager:
         self,
         metadata: MetadataRepository,
         chunk_manager: ChunkManager,
+        acl: ACLSystem,
+        chunk_policy: ChunkPolicy,
     ) -> None:
         self._metadata = metadata
         self._chunk_manager = chunk_manager
+        self._acl = acl
+        self._chunk_policy = chunk_policy
         self._root_id: int | None = None
-        self._default_chunk_size: int = 65536
 
     async def initialize(self, chunk_size: int = 65536) -> None:
         self._default_chunk_size = chunk_size
@@ -32,23 +39,22 @@ class FileManager:
             raise RuntimeError("FileManager not initialized")
         return self._root_id
 
-    async def create_file(self, parent_id: int, name: str) -> Node:
-        return await self._metadata.create_node(
-            parent_id=parent_id,
-            name=name,
-            type="file",
-            chunk_size=self._default_chunk_size,
-        )
+    async def stat(self, node_id: int) -> Node:
+        return await self._metadata.get_node(node_id)
 
-    async def create_directory(self, parent_id: int, name: str) -> Node:
-        return await self._metadata.create_node(
-            parent_id=parent_id,
-            name=name,
-            type="directory",
-        )
+    async def lookup(self, parent_id: int, name: str) -> Node:
+        children = await self._metadata.list_children(parent_id)
+        for child in children:
+            if child.name == name:
+                return child
+        raise FileNotFoundError(f"Name not found: {name}")
 
-    async def read(self, node_id: int, offset: int, size: int) -> bytes:
-        node = await self._metadata.get_node(node_id)
+    async def open(self, node_id: int, flags: int = 1) -> FileHandle:
+        await self._acl.check_permission(node_id, flags)
+        return FileHandle(node_id=node_id)
+
+    async def read(self, fh: FileHandle, offset: int, size: int) -> bytes:
+        node = await self._metadata.get_node(fh.node_id)
         if node.type != "file":
             raise IsADirectoryError("Cannot read a directory")
         if size == 0:
@@ -56,16 +62,50 @@ class FileManager:
         if offset >= node.size:
             return b""
         actual_size = min(size, node.size - offset)
-        return await self._chunk_manager.read(node_id, offset, actual_size)
+        return await self._chunk_manager.read(fh.node_id, offset, actual_size)
 
-    async def write(self, node_id: int, offset: int, data: bytes) -> int:
-        node = await self._metadata.get_node(node_id)
+    async def write(self, fh: FileHandle, offset: int, data: bytes) -> int:
+        node = await self._metadata.get_node(fh.node_id)
         if node.type != "file":
             raise IsADirectoryError("Cannot write to a directory")
         if not data:
             return 0
-        await self._chunk_manager.write(node_id, offset, data)
+        await self._chunk_manager.write(fh.node_id, offset, data)
         return len(data)
+
+    async def create_file(self, parent_id: int, name: str) -> Node:
+        await self._acl.check_permission(parent_id, PERM_WRITE)
+        chunk_size = self._chunk_policy.choose_chunk_size(type="file", name=name)
+        return await self._metadata.create_node(
+            parent_id=parent_id,
+            name=name,
+            type="file",
+            chunk_size=chunk_size,
+        )
+
+    async def create_directory(self, parent_id: int, name: str) -> Node:
+        await self._acl.check_permission(parent_id, PERM_WRITE)
+        return await self._metadata.create_node(
+            parent_id=parent_id,
+            name=name,
+            type="directory",
+        )
+
+    async def mkdir(self, parent_id: int, name: str) -> Node:
+        return await self.create_directory(parent_id, name)
+
+    async def unlink(self, parent_id: int, name: str) -> None:
+        await self._acl.check_permission(parent_id, PERM_WRITE)
+        node = await self.lookup(parent_id, name)
+        await self._metadata.delete_node(node.id)
+
+    async def rmdir(self, parent_id: int, name: str) -> None:
+        await self._acl.check_permission(parent_id, PERM_WRITE)
+        node = await self.lookup(parent_id, name)
+        children = await self._metadata.list_children(node.id)
+        if children:
+            raise DirectoryNotEmptyError(node.id)
+        await self._metadata.delete_node(node.id)
 
     async def delete(self, node_id: int) -> None:
         node = await self._metadata.get_node(node_id)
@@ -77,9 +117,6 @@ class FileManager:
 
     async def list_directory(self, parent_id: int) -> list[Node]:
         return await self._metadata.list_children(parent_id)
-
-    async def stat(self, node_id: int) -> Node:
-        return await self._metadata.get_node(node_id)
 
     async def resolve_path(self, path: str) -> int:
         if path == "/":
