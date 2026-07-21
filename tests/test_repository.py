@@ -1,4 +1,3 @@
-import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
@@ -87,7 +86,7 @@ class TestSqlAlchemyMetadataRepository:
             node_id=node.id,
             chunk_index=0,
             offset=0,
-            chunk_id=uuid.uuid4(),
+            chunk_id="chunk_cascade_0",
         )
         await repo.delete_node(node.id)
 
@@ -96,16 +95,16 @@ class TestSqlAlchemyMetadataRepository:
 
     async def test_add_chunk_links_to_node(self, repo: SqlAlchemyMetadataRepository) -> None:
         node = await repo.create_node(parent_id=None, name="file.bin", type="file")
-        chunk_uuid = uuid.uuid4()
+        chunk_id = "chunk_link_1"
         await repo.add_chunk(
             node_id=node.id,
             chunk_index=0,
             offset=0,
-            chunk_id=chunk_uuid,
+            chunk_id=chunk_id,
         )
         chunks = await repo.get_chunks(node.id)
         assert len(chunks) == 1
-        assert chunks[0].chunk_id == chunk_uuid
+        assert chunks[0].chunk_id == chunk_id
         assert chunks[0].chunk_index == 0
 
     async def test_get_chunks_ordered_by_index(self, repo: SqlAlchemyMetadataRepository) -> None:
@@ -114,19 +113,19 @@ class TestSqlAlchemyMetadataRepository:
             node_id=node.id,
             chunk_index=2,
             offset=200,
-            chunk_id=uuid.uuid4(),
+            chunk_id="chunk_order_2",
         )
         await repo.add_chunk(
             node_id=node.id,
             chunk_index=0,
             offset=0,
-            chunk_id=uuid.uuid4(),
+            chunk_id="chunk_order_0",
         )
         await repo.add_chunk(
             node_id=node.id,
             chunk_index=1,
             offset=100,
-            chunk_id=uuid.uuid4(),
+            chunk_id="chunk_order_1",
         )
         chunks = await repo.get_chunks(node.id)
         indices = [c.chunk_index for c in chunks]
@@ -134,34 +133,34 @@ class TestSqlAlchemyMetadataRepository:
 
     async def test_update_chunk_replaces_id(self, repo: SqlAlchemyMetadataRepository) -> None:
         node = await repo.create_node(parent_id=None, name="file.bin", type="file")
-        old_uuid = uuid.uuid4()
+        old_id = "chunk_old"
         await repo.add_chunk(
             node_id=node.id,
             chunk_index=0,
             offset=0,
-            chunk_id=old_uuid,
+            chunk_id=old_id,
         )
         chunks = await repo.get_chunks(node.id)
         file_chunk_id = chunks[0].id
 
-        new_uuid = uuid.uuid4()
-        await repo.update_chunk(file_chunk_id, new_uuid)
+        new_id = "chunk_new"
+        await repo.update_chunk(file_chunk_id, new_id)
 
         updated_chunks = await repo.get_chunks(node.id)
-        assert updated_chunks[0].chunk_id == new_uuid
-        assert updated_chunks[0].chunk_id != old_uuid
+        assert updated_chunks[0].chunk_id == new_id
+        assert updated_chunks[0].chunk_id != old_id
 
     async def test_update_chunk_nonexistent_raises(
         self, repo: SqlAlchemyMetadataRepository
     ) -> None:
         with pytest.raises(KeyError):
-            await repo.update_chunk(99999, uuid.uuid4())
+            await repo.update_chunk(99999, "chunk_nonexistent")
 
     async def test_get_orphaned_chunks_returns_deleted(
         self, repo: SqlAlchemyMetadataRepository, session: AsyncSession
     ) -> None:
         now = datetime.now(UTC)
-        chunk_id = uuid.uuid4()
+        chunk_id = "orphaned_deleted"
         stmt = insert(ChunkModel).values(
             id=chunk_id,
             size=100,
@@ -181,8 +180,8 @@ class TestSqlAlchemyMetadataRepository:
         self, repo: SqlAlchemyMetadataRepository, session: AsyncSession
     ) -> None:
         now = datetime.now(UTC)
-        deleted_id = uuid.uuid4()
-        active_id = uuid.uuid4()
+        deleted_id = "orphaned_deleted_1"
+        active_id = "orphaned_active_1"
         stmt = insert(ChunkModel)
         await session.execute(
             stmt.values(
