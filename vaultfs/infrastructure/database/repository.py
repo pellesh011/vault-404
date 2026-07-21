@@ -1,4 +1,3 @@
-import uuid
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -41,7 +40,7 @@ class FileChunk:
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: uuid.UUID,
+        chunk_id: str,
     ) -> None:
         self.id = id
         self.node_id = node_id
@@ -53,7 +52,7 @@ class FileChunk:
 class Chunk:
     def __init__(
         self,
-        id: uuid.UUID,
+        id: str,
         size: int,
         sha256: bytes | None = None,
         telegram_message_id: int | None = None,
@@ -88,12 +87,12 @@ class MetadataRepository(Protocol):
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: uuid.UUID,
+        chunk_id: str,
     ) -> None: ...
 
     async def get_chunks(self, node_id: int) -> list[FileChunk]: ...
 
-    async def update_chunk(self, file_chunk_id: int, new_chunk_id: uuid.UUID) -> None: ...
+    async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None: ...
 
     async def get_orphaned_chunks(self) -> list[Chunk]: ...
 
@@ -177,7 +176,7 @@ class SqlAlchemyMetadataRepository:
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: uuid.UUID,
+        chunk_id: str,
     ) -> None:
         model = FileChunkModel(
             node_id=node_id,
@@ -206,7 +205,7 @@ class SqlAlchemyMetadataRepository:
             for m in models
         ]
 
-    async def update_chunk(self, file_chunk_id: int, new_chunk_id: uuid.UUID) -> None:
+    async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None:
         model = await self._session.get(FileChunkModel, file_chunk_id)
         if model is None:
             raise KeyError(f"FileChunk {file_chunk_id} not found")
