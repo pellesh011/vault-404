@@ -32,3 +32,7 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# Telethon sessions
+*.session
+*.session-journal
