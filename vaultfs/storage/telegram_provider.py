@@ -8,6 +8,7 @@ from telethon.tl.custom import Message
 from telethon.tl.types import Channel
 
 from vaultfs.storage.interface import ChunkId, ChunkInfo
+from vaultfs.storage.metadata import MetadataRepository
 from vaultfs.storage.provider import ProviderConfig, StorageProvider
 
 
@@ -19,13 +20,14 @@ class TelegramStorageProvider(StorageProvider):
         config: ProviderConfig,
         client: TelegramClient,
         channel: Channel,
+        metadata: MetadataRepository,
         max_concurrent: int = 10,
     ) -> None:
         super().__init__(config)
         self._client = client
         self._channel = channel
+        self._metadata = metadata
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._store: dict[ChunkId, ChunkInfo] = {}
 
     @property
     def name(self) -> str:  # type: ignore[override]
@@ -42,28 +44,26 @@ class TelegramStorageProvider(StorageProvider):
             sha256=hashlib.sha256(data).digest(),
             created_at=datetime.now(UTC),
         )
-        self._store[chunk_id] = info
+        await self._metadata.save(chunk_id, message.id, info)
         return chunk_id
 
     async def get_chunk(self, chunk_id: ChunkId) -> bytes:
+        message_id = await self._metadata.get_message_id(chunk_id)
         async with self._semaphore:
-            message = await self._client.get_messages(self._channel, ids=chunk_id)
+            message = await self._client.get_messages(self._channel, ids=message_id)
             message = cast(Message | None, message)
             if message is None:
-                raise KeyError(f"Chunk {chunk_id} not found in channel")
+                raise KeyError(f"Message {message_id} not found in channel")
             data = await message.download_media(file=bytes)  # type: ignore[arg-type]
         if data is None:
             raise KeyError(f"Chunk {chunk_id} data not found")
         return data if isinstance(data, bytes) else data.encode()
 
     async def delete_chunk(self, chunk_id: ChunkId) -> None:
-        self._store.pop(chunk_id, None)
+        await self._metadata.mark_deleted(chunk_id)
 
     async def stat(self, chunk_id: ChunkId) -> ChunkInfo:
-        info = self._store.get(chunk_id)
-        if info is None:
-            raise KeyError(f"Chunk {chunk_id} not found")
-        return info
+        return await self._metadata.get_info(chunk_id)
 
     async def is_healthy(self) -> bool:
         try:
@@ -73,4 +73,4 @@ class TelegramStorageProvider(StorageProvider):
             return False
 
     async def close(self) -> None:
-        self._store.clear()
+        pass
