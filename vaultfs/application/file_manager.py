@@ -1,5 +1,7 @@
+import os
+
 from vaultfs.application.chunk_manager import ChunkManager
-from vaultfs.domain.acl import PERM_WRITE, ACLSystem
+from vaultfs.domain.acl import PERM_READ, PERM_WRITE, ACLSystem
 from vaultfs.domain.chunk_policy import ChunkPolicy
 from vaultfs.domain.exceptions import DirectoryNotEmptyError
 from vaultfs.domain.file_handle import FileHandle
@@ -19,6 +21,18 @@ class FileManager:
         self._acl = acl
         self._chunk_policy = chunk_policy
         self._root_id: int | None = None
+
+    @staticmethod
+    def _flags_to_perms(flags: int) -> int:
+        access_mode = flags & 0x3
+        perms = 0
+        if access_mode == os.O_RDONLY:
+            perms |= PERM_READ
+        elif access_mode == os.O_WRONLY:
+            perms |= PERM_WRITE
+        elif access_mode == os.O_RDWR:
+            perms |= PERM_READ | PERM_WRITE
+        return perms or PERM_READ
 
     async def initialize(self, chunk_size: int = 65536) -> None:
         self._default_chunk_size = chunk_size
@@ -50,7 +64,8 @@ class FileManager:
         raise FileNotFoundError(f"Name not found: {name}")
 
     async def open(self, node_id: int, flags: int = 1) -> FileHandle:
-        await self._acl.check_permission(node_id, flags)
+        perms = self._flags_to_perms(flags)
+        await self._acl.check_permission(node_id, perms)
         return FileHandle(node_id=node_id)
 
     async def read(self, fh: FileHandle, offset: int, size: int) -> bytes:
@@ -71,6 +86,8 @@ class FileManager:
         if not data:
             return 0
         await self._chunk_manager.write(fh.node_id, offset, data)
+        new_size = max(node.size, offset + len(data))
+        await self._metadata.update_node_size(fh.node_id, new_size)
         return len(data)
 
     async def create_file(self, parent_id: int, name: str) -> Node:

@@ -20,18 +20,28 @@ class VaultFS(Operations):
         self._fm = file_manager
         self._handles: dict[int, int] = {}
 
+    def _map_inode(self, node_id: int) -> int:
+        if node_id == self._fm.root_id:
+            return ROOT_INODE
+        return node_id + 1
+
+    def _unmap_inode(self, inode: int) -> int:
+        if inode == ROOT_INODE:
+            return self._fm.root_id
+        return inode - 1
+
     async def getattr(
         self,
         inode: int,
         ctx: RequestContext | None = None,
     ) -> pyfuse3.EntryAttributes:
         try:
-            node = await self._fm.stat(inode)
+            node = await self._fm.stat(self._unmap_inode(inode))
         except KeyError:
             raise FUSEError(errno.ENOENT)
 
         attr = pyfuse3.EntryAttributes()
-        attr.st_ino = node.id
+        attr.st_ino = self._map_inode(node.id)
         attr.generation = 0
         attr.entry_timeout = 300
         attr.attr_timeout = 300
@@ -65,13 +75,13 @@ class VaultFS(Operations):
     ) -> pyfuse3.EntryAttributes:
         name_str = name.decode("utf-8")
         try:
-            children = await self._fm.list_directory(parent_inode)
+            children = await self._fm.list_directory(self._unmap_inode(parent_inode))
         except KeyError:
             raise FUSEError(errno.ENOENT)
 
         for child in children:
             if child.name == name_str:
-                return await self.getattr(child.id)
+                return await self.getattr(self._map_inode(child.id))
         raise FUSEError(errno.ENOENT)
 
     async def readdir(
@@ -81,23 +91,25 @@ class VaultFS(Operations):
         token: pyfuse3.ReaddirToken,
     ) -> None:
         try:
-            children = await self._fm.list_directory(fh)
+            real_id = self._unmap_inode(fh)
+            children = await self._fm.list_directory(real_id)
         except KeyError:
             raise FUSEError(errno.ENOENT)
 
         if start_id == 0:
-            pyfuse3.readdir_reply(token, b".", await self.getattr(fh), 1)
-            pyfuse3.readdir_reply(
-                token,
-                b"..",
-                await self.getattr(pyfuse3.ROOT_INODE),
-                2,
-            )
-            start_id = 3
+            root_attr = await self.getattr(ROOT_INODE)
+            ok = pyfuse3.readdir_reply(token, b".", root_attr, 1)
+            if ok:
+                pyfuse3.readdir_reply(token, b"..", root_attr, 2)
 
-        for i, child in enumerate(children, start=start_id):
-            attr = await self.getattr(child.id)
-            pyfuse3.readdir_reply(token, child.name.encode(), attr, i + 1)
+        idx = max(start_id, 3) - 3
+        for child in children[idx:]:
+            attr = await self.getattr(self._map_inode(child.id))
+            next_id = idx + 4
+            ok = pyfuse3.readdir_reply(token, child.name.encode(), attr, next_id)
+            if not ok:
+                break
+            idx += 1
 
     async def open(
         self,
@@ -106,13 +118,20 @@ class VaultFS(Operations):
         ctx: RequestContext | None = None,
     ) -> pyfuse3.FileInfo:
         try:
-            fh = await self._fm.open(inode, flags)
+            fh = await self._fm.open(self._unmap_inode(inode), flags)
         except KeyError:
             raise FUSEError(errno.ENOENT)
         except PermissionError:
             raise FUSEError(errno.EACCES)
         self._handles[fh.node_id] = fh.node_id
-        return pyfuse3.FileInfo(fh=fh.node_id)
+        return pyfuse3.FileInfo(fh=self._map_inode(fh.node_id))
+
+    async def opendir(
+        self,
+        inode: int,
+        ctx: RequestContext | None = None,
+    ) -> int:
+        return inode
 
     async def read(
         self,
@@ -121,7 +140,7 @@ class VaultFS(Operations):
         size: int,
     ) -> bytes:
         try:
-            return await self._fm.read(FileHandle(node_id=fh), off, size)
+            return await self._fm.read(FileHandle(node_id=self._unmap_inode(fh)), off, size)
         except (KeyError, FileNotFoundError):
             raise FUSEError(errno.ENOENT)
 
@@ -132,7 +151,7 @@ class VaultFS(Operations):
         buf: bytes,
     ) -> int:
         try:
-            return await self._fm.write(FileHandle(node_id=fh), off, buf)
+            return await self._fm.write(FileHandle(node_id=self._unmap_inode(fh)), off, buf)
         except (KeyError, FileNotFoundError):
             raise FUSEError(errno.ENOENT)
 
@@ -146,11 +165,11 @@ class VaultFS(Operations):
     ) -> tuple[pyfuse3.FileInfo, pyfuse3.EntryAttributes]:
         name_str = name.decode("utf-8")
         try:
-            node = await self._fm.create_file(parent_inode, name_str)
+            node = await self._fm.create_file(self._unmap_inode(parent_inode), name_str)
         except KeyError:
             raise FUSEError(errno.ENOENT)
-        attr = await self.getattr(node.id)
-        return pyfuse3.FileInfo(fh=node.id), attr
+        attr = await self.getattr(self._map_inode(node.id))
+        return pyfuse3.FileInfo(fh=self._map_inode(node.id)), attr
 
     async def unlink(
         self,
@@ -160,7 +179,7 @@ class VaultFS(Operations):
     ) -> None:
         name_str = name.decode("utf-8")
         try:
-            children = await self._fm.list_directory(parent_inode)
+            children = await self._fm.list_directory(self._unmap_inode(parent_inode))
         except KeyError:
             raise FUSEError(errno.ENOENT)
         for child in children:
@@ -178,10 +197,10 @@ class VaultFS(Operations):
     ) -> pyfuse3.EntryAttributes:
         name_str = name.decode("utf-8")
         try:
-            node = await self._fm.create_directory(parent_inode, name_str)
+            node = await self._fm.create_directory(self._unmap_inode(parent_inode), name_str)
         except KeyError:
             raise FUSEError(errno.ENOENT)
-        return await self.getattr(node.id)
+        return await self.getattr(self._map_inode(node.id))
 
     async def rmdir(
         self,
@@ -191,7 +210,7 @@ class VaultFS(Operations):
     ) -> None:
         name_str = name.decode("utf-8")
         try:
-            children = await self._fm.list_directory(parent_inode)
+            children = await self._fm.list_directory(self._unmap_inode(parent_inode))
         except KeyError:
             raise FUSEError(errno.ENOENT)
         for child in children:
@@ -211,7 +230,7 @@ class VaultFS(Operations):
     ) -> None:
         name_old_str = name_old.decode("utf-8")
         try:
-            children = await self._fm.list_directory(parent_inode_old)
+            children = await self._fm.list_directory(self._unmap_inode(parent_inode_old))
         except KeyError:
             raise FUSEError(errno.ENOENT)
         for child in children:
@@ -238,6 +257,16 @@ class VaultFS(Operations):
     async def flush(self, fh: int, ctx: RequestContext | None = None) -> None: ...
 
     async def release(self, fh: int, ctx: RequestContext | None = None) -> None: ...
+
+    async def setattr(
+        self,
+        inode: int,
+        attr: pyfuse3.EntryAttributes,
+        fields: pyfuse3.SetattrFields,
+        fh: int | None = None,
+        ctx: RequestContext | None = None,
+    ) -> pyfuse3.EntryAttributes:
+        return await self.getattr(inode)
 
 
 async def mount_vaultfs(

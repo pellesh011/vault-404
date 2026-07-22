@@ -69,6 +69,12 @@ class InMemoryMetadataRepo:
             ]
         self._chunks.pop(node_id, None)
 
+    async def update_node_size(self, node_id: int, size: int) -> None:
+        node = self._nodes.get(node_id)
+        if node is None:
+            raise KeyError(f"Node {node_id} not found")
+        node.size = size
+
     async def add_chunk(self, node_id: int, chunk_index: int, offset: int, chunk_id: str) -> None:
         if node_id not in self._chunks:
             self._chunks[node_id] = []
@@ -377,4 +383,4 @@ class TestFileManager:
         node = await fm.create_file(fm.root_id, "test.txt")
         await acl.set_permission(node.id, "", PERM_WRITE)
         with pytest.raises(PermissionDeniedError):
-            await fm.open(node.id, PERM_READ)
+            await fm.open(node.id, 0)  # O_RDONLY → PERM_READ, but only PERM_WRITE granted
