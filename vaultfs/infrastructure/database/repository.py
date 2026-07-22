@@ -87,6 +87,8 @@ class MetadataRepository(Protocol):
 
     async def get_node(self, node_id: int) -> Node: ...
 
+    async def get_root_node(self) -> Node | None: ...
+
     async def list_children(self, parent_id: int) -> list[Node]: ...
 
     async def delete_node(self, node_id: int) -> None: ...
@@ -176,6 +178,27 @@ class SqlAlchemyMetadataRepository:
         model = await self._session.get(NodeModel, node_id)
         if model is None:
             raise KeyError(f"Node {node_id} not found")
+        return Node(
+            id=model.id,
+            parent_id=model.parent_id,
+            name=model.name,
+            type=model.type,
+            created_at=model.created_at,
+            modified_at=model.modified_at,
+            size=model.size,
+            chunk_size=model.chunk_size,
+        )
+
+    async def get_root_node(self) -> Node | None:
+        result = await self._session.execute(
+            select(NodeModel).where(
+                NodeModel.parent_id.is_(None),
+                NodeModel.name == "/",
+            )
+        )
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
         return Node(
             id=model.id,
             parent_id=model.parent_id,

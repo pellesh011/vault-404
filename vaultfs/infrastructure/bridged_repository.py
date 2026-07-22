@@ -67,6 +67,9 @@ class BridgedMetadataRepository:
     async def get_node(self, node_id: int) -> Node:
         return await self._bridge.run(self._repo.get_node(node_id))
 
+    async def get_root_node(self) -> Node | None:
+        return await self._bridge.run(self._repo.get_root_node())
+
     async def list_children(self, parent_id: int) -> list[Node]:
         return await self._bridge.run(self._repo.list_children(parent_id))
 

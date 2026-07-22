@@ -24,6 +24,7 @@ class _FakeMetadata:
         self.add_chunk = AsyncMock(side_effect=self._add_chunk_impl)
         self.update_chunk = AsyncMock(side_effect=self._update_chunk_impl)
         self.get_node = AsyncMock(return_value=node)
+        self.get_root_node = AsyncMock(return_value=node)
         self.create_node = AsyncMock()
         self.list_children = AsyncMock(return_value=[])
         self.delete_node = AsyncMock()

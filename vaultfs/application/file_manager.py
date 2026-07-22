@@ -36,9 +36,8 @@ class FileManager:
 
     async def initialize(self, chunk_size: int = 65536) -> None:
         self._default_chunk_size = chunk_size
-        try:
-            root = await self._metadata.get_node(1)
-        except KeyError:
+        root = await self._metadata.get_root_node()
+        if root is None:
             root = await self._metadata.create_node(
                 parent_id=None,
                 name="/",

@@ -55,6 +55,12 @@ class InMemoryMetadataRepo:
             raise KeyError(f"Node {node_id} not found")
         return node
 
+    async def get_root_node(self) -> Node | None:
+        for node in self._nodes.values():
+            if node.parent_id is None and node.name == "/":
+                return node
+        return None
+
     async def list_children(self, parent_id: int) -> list[Node]:
         child_ids = self._children.get(parent_id, [])
         return [self._nodes[cid] for cid in child_ids if cid in self._nodes]
