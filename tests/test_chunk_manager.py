@@ -57,6 +57,31 @@ class _FakeMetadata:
                 fc.chunk_id = new_chunk_id
                 break
 
+    async def get_or_create_storage_provider(
+        self, name: str, type_: str, description: str = "", config: dict | None = None
+    ) -> object:
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeProviderModel:
+            id: str
+            name: str
+            type: str
+
+        return FakeProviderModel(id=name, name=name, type=type_)
+
+    async def save_chunk_with_external_id(
+        self,
+        chunk_id: str,
+        size: int,
+        sha256: bytes | None,
+        external_id: str,
+        storage_provider_id: str,
+        nonce: bytes | None = None,
+        auth_tag: bytes | None = None,
+    ) -> object:
+        pass  # No-op for tests
+
 
 @pytest.fixture
 def chunk_size() -> int:

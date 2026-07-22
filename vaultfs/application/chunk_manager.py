@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime
 
 from vaultfs.application.cache import CacheLayer
@@ -87,6 +88,20 @@ class ChunkManager:
             provider = self._registry.get(self._default_provider)
             new_chunk_id = await provider.create_chunk(merged)
             await self._cache.set(new_chunk_id, merged)
+
+            # Save chunk metadata to chunks table
+            chunk_sha256 = hashlib.sha256(merged).digest()
+            provider_model = await self._metadata.get_or_create_storage_provider(
+                name=provider.name,
+                type_=provider.provider_type,
+            )
+            await self._metadata.save_chunk_with_external_id(
+                chunk_id=new_chunk_id,
+                size=len(merged),
+                sha256=chunk_sha256,
+                external_id=new_chunk_id,
+                storage_provider_id=provider_model.id,
+            )
 
             if existing is not None:
                 new_offset = (
