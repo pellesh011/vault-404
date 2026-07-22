@@ -2,7 +2,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from vaultfs.storage.interface import ChunkId, ChunkInfo
+from vaultfs.storage.interface import (
+    ChunkId,
+    ChunkInfo,
+    ProviderStorageChunkCreateResult,
+)
 
 
 @dataclass(frozen=True)
@@ -31,7 +35,7 @@ class StorageProvider(ABC):
         """Инициализация провайдера (авторизация, подключение и т.д.)."""
 
     @abstractmethod
-    async def create_chunk(self, data: bytes) -> ChunkId: ...
+    async def create_chunk(self, data: bytes) -> ProviderStorageChunkCreateResult: ...
 
     @abstractmethod
     async def get_chunk(self, chunk_id: ChunkId) -> bytes: ...

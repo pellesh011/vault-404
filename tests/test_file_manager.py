@@ -120,11 +120,11 @@ class InMemoryMetadataRepo:
 
         @dataclass
         class FakeProviderModel:
-            id: str
+            id: int
             name: str
             type: str
 
-        return FakeProviderModel(id=name, name=name, type=type_)
+        return FakeProviderModel(id=1, name=name, type=type_)
 
     async def save_chunk_with_external_id(
         self,
@@ -132,7 +132,7 @@ class InMemoryMetadataRepo:
         size: int,
         sha256: bytes | None,
         external_id: str,
-        storage_provider_id: str,
+        storage_provider_id: int,
         nonce: bytes | None = None,
         auth_tag: bytes | None = None,
     ) -> object:
@@ -191,7 +191,9 @@ def chunk_manager(
     registry: StorageProviderRegistry,
 ) -> ChunkManager:
     cache = InMemoryCache()
-    return ChunkManager(registry=registry, metadata=metadata, cache=cache)
+    return ChunkManager(
+        registry=registry, metadata=metadata, cache=cache, default_provider=PROVIDER_NAME
+    )
 
 
 @pytest.fixture

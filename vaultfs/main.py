@@ -24,7 +24,6 @@ from vaultfs.infrastructure.bridged_repository import (
 from vaultfs.infrastructure.database.repository import SqlAlchemyMetadataRepository
 from vaultfs.infrastructure.vault_fs import VaultFS
 from vaultfs.storage.memory_provider import MemoryStorageProvider
-from vaultfs.storage.metadata import InMemoryMetadataRepository
 from vaultfs.storage.provider import ProviderConfig
 from vaultfs.storage.provider_factory import StorageProviderRegistry
 from vaultfs.storage.telegram_provider import TelegramStorageProvider
@@ -54,7 +53,7 @@ async def _setup_database(
     return repo, session, engine
 
 
-async def _init_telegram(registry: StorageProviderRegistry) -> None:
+async def _init_telegram(registry: StorageProviderRegistry, session: AsyncSession) -> None:
     telegram_api_id = os.getenv("TELEGRAM_API_ID")
     telegram_api_hash = os.getenv("TELEGRAM_API_HASH")
     telegram_phone = os.getenv("TELEGRAM_PHONE")
@@ -63,7 +62,7 @@ async def _init_telegram(registry: StorageProviderRegistry) -> None:
         logger.warning("Telegram not configured, skipping telegram provider")
         return
 
-    telegram_metadata = InMemoryMetadataRepository()
+    telegram_metadata = SqlAlchemyMetadataRepository(session)
     telegram_config = ProviderConfig(name="telegram", type="telegram")
     telegram_provider = TelegramStorageProvider(config=telegram_config)
     channel_id_raw = os.getenv("TELEGRAM_CHANNEL_ID")
@@ -83,8 +82,9 @@ async def _init_telegram(registry: StorageProviderRegistry) -> None:
 
 
 def main() -> None:
+    log_level = os.getenv("VAULTFS_LOG_LEVEL", "INFO").upper()
     logging.basicConfig(
-        level=logging.INFO,
+        level=getattr(logging, log_level, logging.INFO),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     _load_env()
@@ -103,7 +103,7 @@ def main() -> None:
     logger.info("Mounting vaultfs at %s", mountpoint)
 
     async def _mount() -> None:
-        await bridge.run(_init_telegram(registry))
+        await bridge.run(_init_telegram(registry, session))
 
         memory_config = ProviderConfig(name="memory", type="memory")
         memory_provider = MemoryStorageProvider(config=memory_config)
@@ -136,6 +136,7 @@ def main() -> None:
         fuse = VaultFS(file_manager)
         fuse_options = set(pyfuse3.default_options)
         fuse_options.add("fsname=vaultfs")
+        fuse_options.add("allow_other")
 
         # Clean up stale mount if exists
         import subprocess

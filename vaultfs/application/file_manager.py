@@ -1,3 +1,4 @@
+import logging
 import os
 
 from vaultfs.application.chunk_manager import ChunkManager
@@ -6,6 +7,8 @@ from vaultfs.domain.chunk_policy import ChunkPolicy
 from vaultfs.domain.exceptions import DirectoryNotEmptyError
 from vaultfs.domain.file_handle import FileHandle
 from vaultfs.infrastructure.database.repository import MetadataRepository, Node
+
+logger = logging.getLogger(__name__)
 
 
 class FileManager:
@@ -64,10 +67,12 @@ class FileManager:
 
     async def open(self, node_id: int, flags: int = 1) -> FileHandle:
         perms = self._flags_to_perms(flags)
+        logger.debug("FileManager.open: node_id=%d, flags=%d, perms=%d", node_id, flags, perms)
         await self._acl.check_permission(node_id, perms)
         return FileHandle(node_id=node_id)
 
     async def read(self, fh: FileHandle, offset: int, size: int) -> bytes:
+        logger.debug("FileManager.read: node_id=%d, offset=%d, size=%d", fh.node_id, offset, size)
         node = await self._metadata.get_node(fh.node_id)
         if node.type != "file":
             raise IsADirectoryError("Cannot read a directory")

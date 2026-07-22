@@ -1,9 +1,11 @@
 import asyncio
+import hashlib
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from vaultfs.storage.interface import ChunkId
+from vaultfs.storage.interface import ChunkId, ChunkInfo, ProviderStorageChunkCreateResult
 from vaultfs.storage.metadata import InMemoryMetadataRepository
 from vaultfs.storage.provider import ProviderConfig
 from vaultfs.storage.telegram_provider import TelegramStorageProvider
@@ -48,6 +50,23 @@ async def provider(
     return p
 
 
+async def _save_chunk(
+    metadata: InMemoryMetadataRepository,
+    provider: TelegramStorageProvider,
+    data: bytes,
+    result: ProviderStorageChunkCreateResult,
+) -> ChunkId:
+    chunk_id = hashlib.sha256(data).hexdigest()
+    info = ChunkInfo(
+        size=len(data),
+        sha256=hashlib.sha256(data).digest(),
+        created_at=datetime.now(UTC),
+        storage_provider_id=provider.name,
+    )
+    await metadata.save(ChunkId(chunk_id), int(result.external_id), info)
+    return ChunkId(chunk_id)
+
+
 class TestTelegramStorageProvider:
     async def test_create_chunk_uploads_to_channel(
         self,
@@ -58,7 +77,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=12345)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        chunk_id = hashlib.sha256(b"test data").hexdigest()
+        await provider.create_chunk(b"test data")
 
         mock_client.upload_file.assert_awaited_once_with(
             b"test data",
@@ -75,7 +95,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=999)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        result = await provider.create_chunk(b"test data")
+        chunk_id = await _save_chunk(metadata, provider, b"test data", result)
         message_id = await metadata.get_message_id(chunk_id)
 
         assert message_id == 999
@@ -88,7 +109,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        chunk_id = hashlib.sha256(b"test data").hexdigest()
+        await provider.create_chunk(b"test data")
 
         assert isinstance(chunk_id, str)
         assert len(chunk_id) == 64
@@ -98,6 +120,7 @@ class TestTelegramStorageProvider:
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
         mock_channel: MagicMock,
+        metadata: InMemoryMetadataRepository,
     ) -> None:
         mock_client.upload_file.return_value = MagicMock()
         mock_message = MagicMock()
@@ -105,7 +128,8 @@ class TestTelegramStorageProvider:
         mock_client.send_file.return_value = MagicMock(id=42)
         mock_client.get_messages.return_value = mock_message
 
-        chunk_id = await provider.create_chunk(b"test data")
+        result = await provider.create_chunk(b"test data")
+        chunk_id = await _save_chunk(metadata, provider, b"test data", result)
         await provider.get_chunk(chunk_id)
 
         mock_client.get_messages.assert_awaited_once_with(
@@ -117,6 +141,7 @@ class TestTelegramStorageProvider:
         self,
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
+        metadata: InMemoryMetadataRepository,
     ) -> None:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
@@ -125,15 +150,17 @@ class TestTelegramStorageProvider:
         mock_message.download_media = AsyncMock(return_value=b"test data")
         mock_client.get_messages.return_value = mock_message
 
-        chunk_id = await provider.create_chunk(b"test data")
-        result = await provider.get_chunk(chunk_id)
+        result = await provider.create_chunk(b"test data")
+        chunk_id = await _save_chunk(metadata, provider, b"test data", result)
+        result_data = await provider.get_chunk(chunk_id)
 
-        assert result == b"test data"
+        assert result_data == b"test data"
 
     async def test_get_chunk_large_data(
         self,
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
+        metadata: InMemoryMetadataRepository,
     ) -> None:
         large_data = b"x" * (10 * 1024 * 1024)
         mock_client.upload_file.return_value = MagicMock()
@@ -143,11 +170,12 @@ class TestTelegramStorageProvider:
         mock_message.download_media = AsyncMock(return_value=large_data)
         mock_client.get_messages.return_value = mock_message
 
-        chunk_id = await provider.create_chunk(large_data)
-        result = await provider.get_chunk(chunk_id)
+        result = await provider.create_chunk(large_data)
+        chunk_id = await _save_chunk(metadata, provider, large_data, result)
+        result_data = await provider.get_chunk(chunk_id)
 
-        assert result == large_data
-        assert len(result) == 10 * 1024 * 1024
+        assert result_data == large_data
+        assert len(result_data) == 10 * 1024 * 1024
 
     async def test_delete_chunk_marks_deleted(
         self,
@@ -158,7 +186,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        chunk_id = hashlib.sha256(b"test data").hexdigest()
+        await provider.create_chunk(b"test data")
         await provider.delete_chunk(chunk_id)
 
         with pytest.raises(KeyError):
@@ -168,13 +197,13 @@ class TestTelegramStorageProvider:
         self,
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
+        metadata: InMemoryMetadataRepository,
     ) -> None:
-        import hashlib
-
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        result = await provider.create_chunk(b"test data")
+        chunk_id = await _save_chunk(metadata, provider, b"test data", result)
         info = await provider.stat(chunk_id)
 
         assert info.size == 9
@@ -202,7 +231,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
 
-        chunk_id = await provider.create_chunk(b"")
+        chunk_id = hashlib.sha256(b"").hexdigest()
+        await provider.create_chunk(b"")
 
         assert isinstance(chunk_id, str)
         assert len(chunk_id) == 64

@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from datetime import UTC, datetime
 
 from vaultfs.application.cache import CacheLayer
@@ -7,6 +8,8 @@ from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.provider import StorageProvider
 from vaultfs.storage.provider_factory import StorageProviderRegistry
 
+logger = logging.getLogger(__name__)
+
 
 class ChunkManager:
     def __init__(
@@ -14,7 +17,7 @@ class ChunkManager:
         registry: StorageProviderRegistry,
         metadata: MetadataRepository,
         cache: CacheLayer,
-        default_provider: str = "memory",
+        default_provider: str = "telegram",
     ) -> None:
         self._registry = registry
         self._metadata = metadata
@@ -22,15 +25,20 @@ class ChunkManager:
         self._default_provider = default_provider
 
     async def _resolve_provider(self, chunk_id: str) -> StorageProvider:
+        logger.debug("_resolve_provider: chunk_id=%s", chunk_id)
         name = await self._metadata.get_provider_name_for_chunk(chunk_id)
+        logger.debug("_resolve_provider: provider name=%s", name)
         return self._registry.get(name)
 
     async def read(self, node_id: int, offset: int, size: int) -> bytes:
+        logger.debug("ChunkManager.read: node_id=%d, offset=%d, size=%d", node_id, offset, size)
         node = await self._metadata.get_node(node_id)
+        logger.debug("ChunkManager.read: got node %s, chunk_size=%s", node.id, node.chunk_size)
         if node.chunk_size is None:
             raise ValueError(f"Node {node_id} has no chunk_size configured")
 
         chunks = await self._metadata.get_chunks(node_id)
+        logger.debug("ChunkManager.read: got %d chunks", len(chunks))
         if not chunks:
             raise ValueError(f"Node {node_id} has no chunks")
 
@@ -44,9 +52,12 @@ class ChunkManager:
 
             file_chunk = self._find_chunk(chunks, chunk_index)
             if file_chunk is None:
+                logger.debug("ChunkManager.read: chunk_index %d not found", chunk_index)
                 break
 
+            logger.debug("ChunkManager.read: loading chunk %s", file_chunk.chunk_id)
             data = await self._load_chunk(file_chunk.chunk_id)
+            logger.debug("ChunkManager.read: loaded chunk, %d bytes", len(data))
             bytes_to_read = min(remaining, len(data) - chunk_offset)
             result.extend(data[chunk_offset : chunk_offset + bytes_to_read])
 
@@ -86,8 +97,9 @@ class ChunkManager:
             )
 
             provider = self._registry.get(self._default_provider)
-            new_chunk_id = await provider.create_chunk(merged)
-            await self._cache.set(new_chunk_id, merged)
+            chunk_id = ChunkId(hashlib.sha256(merged).hexdigest())
+            create_result = await provider.create_chunk(merged)
+            await self._cache.set(chunk_id, merged)
 
             # Save chunk metadata to chunks table
             chunk_sha256 = hashlib.sha256(merged).digest()
@@ -96,10 +108,10 @@ class ChunkManager:
                 type_=provider.provider_type,
             )
             await self._metadata.save_chunk_with_external_id(
-                chunk_id=new_chunk_id,
+                chunk_id=str(chunk_id),
                 size=len(merged),
                 sha256=chunk_sha256,
-                external_id=new_chunk_id,
+                external_id=create_result.external_id,
                 storage_provider_id=provider_model.id,
             )
 
@@ -107,14 +119,14 @@ class ChunkManager:
                 new_offset = (
                     existing.offset if chunk_offset == 0 else existing.offset + chunk_offset
                 )
-                await self._metadata.update_chunk(existing.id, new_chunk_id)
+                await self._metadata.update_chunk(existing.id, str(chunk_id))
             else:
                 new_offset = chunk_index * node.chunk_size
                 await self._metadata.add_chunk(
                     node_id=node_id,
                     chunk_index=chunk_index,
                     offset=new_offset,
-                    chunk_id=new_chunk_id,
+                    chunk_id=str(chunk_id),
                 )
 
             chunks_by_index[chunk_index] = FileChunk(
@@ -122,7 +134,7 @@ class ChunkManager:
                 node_id=node_id,
                 chunk_index=chunk_index,
                 offset=new_offset,
-                chunk_id=new_chunk_id,
+                chunk_id=str(chunk_id),
             )
 
             data_offset += write_size
@@ -151,11 +163,19 @@ class ChunkManager:
         return None
 
     async def _load_chunk(self, chunk_id: str) -> bytes:
+        logger.debug("_load_chunk: chunk_id=%s", chunk_id)
         key = ChunkId(chunk_id)
         cached = await self._cache.get(key)
         if cached is not None:
+            logger.debug("_load_chunk: cache hit")
             return cached
+        logger.debug("_load_chunk: cache miss, resolving provider")
         provider = await self._resolve_provider(chunk_id)
-        data = await provider.get_chunk(key)
-        await self._cache.set(key, data)
-        return data
+        try:
+            data = await provider.get_chunk(key)
+            logger.debug("_load_chunk: got %d bytes from provider", len(data))
+            await self._cache.set(key, data)
+            return data
+        except Exception as e:
+            logger.exception("_load_chunk: failed to get chunk from provider: %s", e)
+            raise

@@ -57,7 +57,7 @@ class FileChunkModel(Base):
 class StorageProviderModel(Base):
     __tablename__ = "storage_providers"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     type: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -76,10 +76,9 @@ class ChunkModel(Base):
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     external_id: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    storage_provider_id: Mapped[str | None] = mapped_column(
-        Text, ForeignKey("storage_providers.id"), nullable=True
+    storage_provider_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("storage_providers.id"), nullable=True
     )
-    telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
     nonce: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)

@@ -19,15 +19,35 @@ services:
   samba:
     image: dperson/samba:latest
     container_name: vault404-samba
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse  
     environment:
       WORKGROUP: VAULTFS
       USER: vaultfs;vaultfs
     ports:
       - "445:445"
     volumes:
-      - /mnt/vault:/mnt/vault
+      - /tmp/vault:/mnt/vault:rshared
       - ./conf/smb.conf:/etc/samba/smb.conf:ro
     restart: unless-stopped
+
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: vault404-postgres-test
+    environment:
+      POSTGRES_DB: vault404_test
+      POSTGRES_USER: vault404
+      POSTGRES_PASSWORD: vault404
+    ports:
+      - "5433:5432"
+    tmpfs: /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vault404 -d vault404_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
 
 volumes:
   pgdata:

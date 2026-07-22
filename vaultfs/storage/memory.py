@@ -1,7 +1,7 @@
 import hashlib
 from datetime import UTC, datetime
 
-from vaultfs.storage.interface import ChunkId, ChunkInfo
+from vaultfs.storage.interface import ChunkCreateResult, ChunkId, ChunkInfo
 
 
 class InMemoryChunkStorage:
@@ -9,7 +9,7 @@ class InMemoryChunkStorage:
         self._data: dict[ChunkId, bytes] = {}
         self._info: dict[ChunkId, ChunkInfo] = {}
 
-    async def create_chunk(self, data: bytes) -> ChunkId:
+    async def create_chunk(self, data: bytes) -> ChunkCreateResult:
         chunk_id = ChunkId(hashlib.sha256(data).hexdigest())
         if chunk_id not in self._data:
             self._data[chunk_id] = data
@@ -17,8 +17,9 @@ class InMemoryChunkStorage:
                 size=len(data),
                 sha256=hashlib.sha256(data).digest(),
                 created_at=datetime.now(UTC),
+                storage_provider_id="memory",
             )
-        return chunk_id
+        return ChunkCreateResult(chunk_id=chunk_id, external_id=chunk_id)
 
     async def get_chunk(self, chunk_id: ChunkId) -> bytes:
         if chunk_id not in self._data:

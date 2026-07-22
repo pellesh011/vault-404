@@ -1,33 +1,11 @@
-from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import insert
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from vaultfs.infrastructure.database.models import Base, ChunkModel
+from vaultfs.infrastructure.database.models import ChunkModel
 from vaultfs.infrastructure.database.repository import SqlAlchemyMetadataRepository
-
-
-@pytest.fixture
-async def engine():
-    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    await engine.dispose()
-
-
-@pytest.fixture
-async def session(engine) -> AsyncGenerator[AsyncSession, None]:
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as s:
-        yield s
-
-
-@pytest.fixture
-async def repo(session: AsyncSession) -> SqlAlchemyMetadataRepository:
-    return SqlAlchemyMetadataRepository(session)
 
 
 class TestSqlAlchemyMetadataRepository:
@@ -159,7 +137,7 @@ class TestSqlAlchemyMetadataRepository:
     async def test_get_orphaned_chunks_returns_deleted(
         self, repo: SqlAlchemyMetadataRepository, session: AsyncSession
     ) -> None:
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         chunk_id = "orphaned_deleted"
         stmt = insert(ChunkModel).values(
             id=chunk_id,
@@ -179,7 +157,7 @@ class TestSqlAlchemyMetadataRepository:
     async def test_get_orphaned_chunks_excludes_active(
         self, repo: SqlAlchemyMetadataRepository, session: AsyncSession
     ) -> None:
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         deleted_id = "orphaned_deleted_1"
         active_id = "orphaned_active_1"
         stmt = insert(ChunkModel)
