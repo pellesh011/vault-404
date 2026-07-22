@@ -9,7 +9,12 @@ from vaultfs.domain.chunk_policy import DefaultChunkPolicy
 from vaultfs.domain.exceptions import DirectoryNotEmptyError, PermissionDeniedError
 from vaultfs.domain.file_handle import FileHandle
 from vaultfs.infrastructure.database.repository import FileChunk, Node
-from vaultfs.storage.interface import ChunkId, ChunkInfo
+from vaultfs.storage.interface import ChunkId
+from vaultfs.storage.memory_provider import MemoryStorageProvider
+from vaultfs.storage.provider import ProviderConfig
+from vaultfs.storage.provider_factory import StorageProviderRegistry
+
+PROVIDER_NAME = "memory"
 
 
 class InMemoryMetadataRepo:
@@ -93,34 +98,10 @@ class InMemoryMetadataRepo:
                 used.add(fc.chunk_id)
         return [cid for cid in self._data if cid not in used]
 
+    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+        return PROVIDER_NAME
+
     _data: dict[str, bytes] = {}
-
-
-class InMemoryChunkStorage:
-    def __init__(self) -> None:
-        self._data: dict[str, bytes] = {}
-        self._next_id = 1
-
-    async def create_chunk(self, data: bytes) -> ChunkId:
-        cid = f"chunk_{self._next_id}"
-        self._next_id += 1
-        self._data[cid] = data
-        return ChunkId(cid)
-
-    async def get_chunk(self, chunk_id: ChunkId) -> bytes:
-        data = self._data.get(chunk_id)
-        if data is None:
-            raise KeyError(f"Chunk {chunk_id} not found")
-        return data
-
-    async def delete_chunk(self, chunk_id: ChunkId) -> None:
-        self._data.pop(chunk_id, None)
-
-    async def stat(self, chunk_id: ChunkId) -> ChunkInfo:
-        data = self._data.get(chunk_id)
-        if data is None:
-            raise KeyError(f"Chunk {chunk_id} not found")
-        return ChunkInfo(size=len(data), sha256=b"", created_at=datetime.now(UTC))
 
 
 class InMemoryCache:
@@ -156,10 +137,24 @@ def chunk_policy() -> DefaultChunkPolicy:
 
 
 @pytest.fixture
-def chunk_manager(metadata: InMemoryMetadataRepo) -> ChunkManager:
-    storage = InMemoryChunkStorage()
+def provider() -> MemoryStorageProvider:
+    return MemoryStorageProvider(config=ProviderConfig(name=PROVIDER_NAME, type="memory"))
+
+
+@pytest.fixture
+def registry(provider: MemoryStorageProvider) -> StorageProviderRegistry:
+    r = StorageProviderRegistry()
+    r.add(provider)
+    return r
+
+
+@pytest.fixture
+def chunk_manager(
+    metadata: InMemoryMetadataRepo,
+    registry: StorageProviderRegistry,
+) -> ChunkManager:
     cache = InMemoryCache()
-    return ChunkManager(storage=storage, metadata=metadata, cache=cache)
+    return ChunkManager(registry=registry, metadata=metadata, cache=cache)
 
 
 @pytest.fixture
@@ -342,9 +337,11 @@ class TestFileManager:
     async def test_initialize_idempotent(self, metadata: InMemoryMetadataRepo) -> None:
         acl = InMemoryACL()
         policy = DefaultChunkPolicy()
-        storage = InMemoryChunkStorage()
+        registry = StorageProviderRegistry()
+        provider = MemoryStorageProvider(config=ProviderConfig(name=PROVIDER_NAME, type="memory"))
+        registry.add(provider)
         cache = InMemoryCache()
-        cm = ChunkManager(storage=storage, metadata=metadata, cache=cache)
+        cm = ChunkManager(registry=registry, metadata=metadata, cache=cache)
         fm1 = FileManager(metadata=metadata, chunk_manager=cm, acl=acl, chunk_policy=policy)
         await fm1.initialize()
         root_id1 = fm1.root_id
