@@ -18,6 +18,7 @@ class ChunkCreateResult:
     chunk_id: ChunkId
     external_id: str
 
+
 @dataclass(frozen=True)
 class ProviderStorageChunkCreateResult:
     external_id: str

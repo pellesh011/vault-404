@@ -2,7 +2,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from vaultfs.storage.interface import ChunkCreateResult, ChunkId, ChunkInfo, ProviderStorageChunkCreateResult
+from vaultfs.storage.interface import (
+    ChunkId,
+    ChunkInfo,
+    ProviderStorageChunkCreateResult,
+)
 
 
 @dataclass(frozen=True)

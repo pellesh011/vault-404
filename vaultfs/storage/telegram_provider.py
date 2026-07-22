@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-from datetime import UTC, datetime
 from typing import Any, cast
 
 from telethon import TelegramClient
@@ -8,7 +7,6 @@ from telethon.tl.custom import Message
 from telethon.tl.types import Channel
 
 from vaultfs.storage.interface import ChunkId, ChunkInfo, ProviderStorageChunkCreateResult
-
 from vaultfs.storage.metadata import MetadataRepository
 from vaultfs.storage.provider import ProviderConfig, StorageProvider
 
