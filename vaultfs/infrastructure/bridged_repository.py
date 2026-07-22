@@ -6,6 +6,44 @@ from vaultfs.infrastructure.database.repository import (
     SqlAlchemyMetadataRepository,
     StorageProviderModel,
 )
+from vaultfs.storage.interface import ChunkId, ChunkInfo
+from vaultfs.storage.provider import StorageProvider
+
+
+class BridgedStorageProvider(StorageProvider):
+    """Wraps a StorageProvider and routes all async calls through AsyncioBridge.
+
+    Needed because Telethon (asyncio) cannot be called directly from trio context.
+    """
+
+    def __init__(self, provider: StorageProvider, bridge: AsyncioBridge) -> None:
+        self._provider = provider
+        self._bridge = bridge
+        super().__init__(config=provider.config)
+
+    async def init(self, **kwargs):  # type: ignore[override]
+        await self._bridge.run(self._provider.init(**kwargs))
+
+    async def create_chunk(self, data: bytes) -> ChunkId:
+        return await self._bridge.run(self._provider.create_chunk(data))
+
+    async def get_chunk(self, chunk_id: ChunkId) -> bytes:
+        return await self._bridge.run(self._provider.get_chunk(chunk_id))
+
+    async def delete_chunk(self, chunk_id: ChunkId) -> None:
+        await self._bridge.run(self._provider.delete_chunk(chunk_id))
+
+    async def stat(self, chunk_id: ChunkId) -> ChunkInfo:
+        return await self._bridge.run(self._provider.stat(chunk_id))
+
+    async def is_healthy(self) -> bool:
+        return await self._bridge.run(self._provider.is_healthy())
+
+    async def close(self) -> None:
+        try:
+            await self._bridge.run(self._provider.close())
+        except Exception:
+            pass  # Provider may not be connected
 
 
 class BridgedMetadataRepository:

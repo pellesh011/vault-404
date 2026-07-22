@@ -17,7 +17,10 @@ from vaultfs.application.file_manager import FileManager
 from vaultfs.domain.acl import InMemoryACL
 from vaultfs.domain.chunk_policy import DefaultChunkPolicy
 from vaultfs.infrastructure.asyncio_bridge import AsyncioBridge
-from vaultfs.infrastructure.bridged_repository import BridgedMetadataRepository
+from vaultfs.infrastructure.bridged_repository import (
+    BridgedMetadataRepository,
+    BridgedStorageProvider,
+)
 from vaultfs.infrastructure.database.repository import SqlAlchemyMetadataRepository
 from vaultfs.infrastructure.vault_fs import VaultFS
 from vaultfs.storage.memory_provider import MemoryStorageProvider
@@ -109,6 +112,11 @@ def main() -> None:
 
         bridged_metadata = BridgedMetadataRepository(db_metadata, bridge)
 
+        # Wrap providers with BridgedStorageProvider for trio compatibility
+        for name in list(registry._providers.keys()):
+            provider = registry._providers[name]
+            registry._providers[name] = BridgedStorageProvider(provider, bridge)
+
         cache = InMemoryCache()
         default_provider = "telegram" if registry.has("telegram") else "memory"
         chunk_manager = ChunkManager(
@@ -128,6 +136,12 @@ def main() -> None:
         fuse = VaultFS(file_manager)
         fuse_options = set(pyfuse3.default_options)
         fuse_options.add("fsname=vaultfs")
+
+        # Clean up stale mount if exists
+        import subprocess
+
+        subprocess.run(["fusermount", "-u", str(mountpoint)], capture_output=True)
+
         pyfuse3.init(fuse, str(mountpoint), fuse_options)
         try:
             await pyfuse3.main()
