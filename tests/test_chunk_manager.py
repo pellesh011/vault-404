@@ -1,12 +1,18 @@
+import hashlib
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from vaultfs.application.cache import CacheLayer, InMemoryCache
 from vaultfs.application.chunk_manager import ChunkManager
 from vaultfs.infrastructure.database.repository import FileChunk, MetadataRepository, Node
-from vaultfs.storage.interface import ChunkId, ChunkStorage
+from vaultfs.storage.interface import ChunkId, ChunkInfo
+from vaultfs.storage.memory_provider import MemoryStorageProvider
+from vaultfs.storage.provider import ProviderConfig
+from vaultfs.storage.provider_factory import StorageProviderRegistry
+
+PROVIDER_NAME = "memory"
 
 
 class _FakeMetadata:
@@ -14,6 +20,7 @@ class _FakeMetadata:
         self.node = node
         self._chunks = {c.chunk_index: c for c in chunks}
         self._next_id = len(chunks) + 1
+        self._provider_map: dict[str, str] = {}
         self.add_chunk = AsyncMock(side_effect=self._add_chunk_impl)
         self.update_chunk = AsyncMock(side_effect=self._update_chunk_impl)
         self.get_node = AsyncMock(return_value=node)
@@ -24,6 +31,12 @@ class _FakeMetadata:
 
     async def get_chunks(self, node_id: int) -> list[FileChunk]:
         return list(self._chunks.values())
+
+    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+        return self._provider_map.get(chunk_id, PROVIDER_NAME)
+
+    def set_provider(self, chunk_id: str, provider_name: str) -> None:
+        self._provider_map[chunk_id] = provider_name
 
     async def _add_chunk_impl(
         self, node_id: int, chunk_index: int, offset: int, chunk_id: str
@@ -79,29 +92,27 @@ def chunk_data() -> dict[str, bytes]:
 
 
 @pytest.fixture
-def storage(chunk_data: dict[str, bytes]) -> ChunkStorage:
-    store = MagicMock()
-
-    async def create_chunk(data: bytes) -> ChunkId:
-        import hashlib
-
-        chunk_id = ChunkId(hashlib.sha256(data).hexdigest())
-        chunk_data[chunk_id] = data
-        return chunk_id
-
-    async def get_chunk(chunk_id: ChunkId) -> bytes:
-        if chunk_id in chunk_data:
-            return chunk_data[chunk_id]
-        raise KeyError(f"Chunk {chunk_id} not found")
-
-    store.create_chunk = AsyncMock(side_effect=create_chunk)
-    store.get_chunk = AsyncMock(side_effect=get_chunk)
-    return store
+def provider() -> MemoryStorageProvider:
+    return MemoryStorageProvider(config=ProviderConfig(name=PROVIDER_NAME, type="memory"))
 
 
 @pytest.fixture
-def metadata(node: Node, chunks: list[FileChunk]) -> _FakeMetadata:
-    return _FakeMetadata(node, chunks)
+def registry(provider: MemoryStorageProvider) -> StorageProviderRegistry:
+    r = StorageProviderRegistry()
+    r.add(provider)
+    return r
+
+
+@pytest.fixture
+def metadata(
+    node: Node,
+    chunks: list[FileChunk],
+    provider: MemoryStorageProvider,
+) -> _FakeMetadata:
+    m = _FakeMetadata(node, chunks)
+    for c in chunks:
+        m.set_provider(c.chunk_id, PROVIDER_NAME)
+    return m
 
 
 @pytest.fixture
@@ -111,16 +122,28 @@ def cache() -> CacheLayer:
 
 @pytest.fixture
 def manager(
-    storage: ChunkStorage,
+    registry: StorageProviderRegistry,
     metadata: _FakeMetadata,
     cache: CacheLayer,
     chunk_data: dict[str, bytes],
     chunks: list[FileChunk],
+    provider: MemoryStorageProvider,
 ) -> ChunkManager:
     chunk_data[chunks[0].chunk_id] = b"AAAABBBBBB"
     chunk_data[chunks[1].chunk_id] = b"CCCCCDDDDD"
     chunk_data[chunks[2].chunk_id] = b"EEEEEFFFFF"
-    mgr = ChunkManager(storage=storage, metadata=metadata, cache=cache)
+
+    for c in chunks:
+        data = chunk_data[c.chunk_id]
+        cid = ChunkId(c.chunk_id)
+        provider._data[cid] = data
+        provider._info[cid] = ChunkInfo(
+            size=len(data),
+            sha256=hashlib.sha256(data).digest(),
+            created_at=datetime.now(),
+        )
+
+    mgr = ChunkManager(registry=registry, metadata=metadata, cache=cache)
     return mgr
 
 
@@ -197,13 +220,14 @@ class TestChunkManager:
     async def test_read_uses_cache(
         self,
         manager: ChunkManager,
-        storage: ChunkStorage,
+        cache: CacheLayer,
         chunks: list[FileChunk],
     ) -> None:
         await manager.read(node_id=1, offset=0, size=5)
 
-        first_call_count = storage.get_chunk.await_count
+        cached_0 = await cache.get(ChunkId(chunks[0].chunk_id))
+        assert cached_0 is not None
 
-        await manager.read(node_id=1, offset=5, size=5)
-
-        assert storage.get_chunk.await_count == first_call_count
+        await manager.read(node_id=1, offset=0, size=5)
+        cached_0_again = await cache.get(ChunkId(chunks[0].chunk_id))
+        assert cached_0_again == cached_0

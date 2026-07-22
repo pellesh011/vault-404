@@ -27,6 +27,9 @@ class StorageProvider(ABC):
     def provider_type(self) -> str:
         return self.config.type
 
+    async def init(self, **kwargs: Any) -> None:
+        """Инициализация провайдера (авторизация, подключение и т.д.)."""
+
     @abstractmethod
     async def create_chunk(self, data: bytes) -> ChunkId: ...
 
