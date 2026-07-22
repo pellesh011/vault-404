@@ -2,13 +2,14 @@ from datetime import UTC, datetime
 
 from vaultfs.application.cache import CacheLayer
 from vaultfs.infrastructure.database.repository import FileChunk, MetadataRepository
-from vaultfs.storage.interface import ChunkId, ChunkStorage
+from vaultfs.storage.interface import ChunkId
+from vaultfs.storage.provider import StorageProvider
 
 
 class ChunkManager:
     def __init__(
         self,
-        storage: ChunkStorage,
+        storage: StorageProvider,
         metadata: MetadataRepository,
         cache: CacheLayer,
     ) -> None:

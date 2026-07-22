@@ -6,7 +6,8 @@ import pytest
 from vaultfs.application.cache import CacheLayer, InMemoryCache
 from vaultfs.application.chunk_manager import ChunkManager
 from vaultfs.infrastructure.database.repository import FileChunk, MetadataRepository, Node
-from vaultfs.storage.interface import ChunkId, ChunkStorage
+from vaultfs.storage.interface import ChunkId
+from vaultfs.storage.provider import StorageProvider
 
 
 class _FakeMetadata:
@@ -79,7 +80,7 @@ def chunk_data() -> dict[str, bytes]:
 
 
 @pytest.fixture
-def storage(chunk_data: dict[str, bytes]) -> ChunkStorage:
+def storage(chunk_data: dict[str, bytes]) -> StorageProvider:
     store = MagicMock()
 
     async def create_chunk(data: bytes) -> ChunkId:
@@ -111,7 +112,7 @@ def cache() -> CacheLayer:
 
 @pytest.fixture
 def manager(
-    storage: ChunkStorage,
+    storage: StorageProvider,
     metadata: _FakeMetadata,
     cache: CacheLayer,
     chunk_data: dict[str, bytes],
@@ -197,7 +198,7 @@ class TestChunkManager:
     async def test_read_uses_cache(
         self,
         manager: ChunkManager,
-        storage: ChunkStorage,
+        storage: StorageProvider,
         chunks: list[FileChunk],
     ) -> None:
         await manager.read(node_id=1, offset=0, size=5)

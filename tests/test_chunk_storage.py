@@ -2,7 +2,6 @@ from datetime import datetime
 
 import pytest
 
-from vaultfs.storage.interface import ChunkStorage
 from vaultfs.storage.memory_provider import MemoryStorageProvider
 from vaultfs.storage.provider import ProviderConfig
 
@@ -75,9 +74,3 @@ class TestChunkStorageProtocol:
         id1 = await storage.create_chunk(data)
         id2 = await storage.create_chunk(data)
         assert id1 == id2
-
-    async def test_chunk_storage_is_protocol(self) -> None:
-        assert isinstance(
-            MemoryStorageProvider(config=ProviderConfig(name="test", type="memory")),
-            ChunkStorage,
-        )

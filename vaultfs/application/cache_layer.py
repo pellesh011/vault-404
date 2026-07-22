@@ -5,7 +5,8 @@ import shutil
 from collections import OrderedDict
 from pathlib import Path
 
-from vaultfs.storage.interface import ChunkId, ChunkStorage
+from vaultfs.storage.interface import ChunkId
+from vaultfs.storage.provider import StorageProvider
 
 
 class LRUCache:
@@ -82,7 +83,7 @@ class SSDDirectoryCache:
 class MultiLevelCache:
     def __init__(
         self,
-        storage: ChunkStorage,
+        storage: StorageProvider,
         l1_max_size: int,
         l2_path: str | Path,
         l2_max_size: int = 0,
