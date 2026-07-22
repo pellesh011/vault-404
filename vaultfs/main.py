@@ -1,5 +1,6 @@
 import logging
 import os
+import signal
 
 import pyfuse3
 import trio
@@ -153,11 +154,14 @@ def main() -> None:
             bridge.close()
 
     try:
+        # Ignore SIGINT in the main thread — let trio handle it
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         trio.run(_mount)
     except KeyboardInterrupt:
-        logger.info("Interrupted")
+        logger.info("Interrupted, shutting down")
     except Exception:
         logger.exception("Fatal error")
+    finally:
         bridge.close()
 
 
