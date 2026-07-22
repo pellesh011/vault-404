@@ -1,5 +1,4 @@
 from vaultfs.storage.interface import ChunkId, ChunkInfo, ChunkStorage
-from vaultfs.storage.memory import InMemoryChunkStorage
 from vaultfs.storage.memory_provider import MemoryStorageProvider
 from vaultfs.storage.metadata import ChunkRecord, InMemoryMetadataRepository, MetadataRepository
 from vaultfs.storage.provider import ProviderConfig, StorageProvider
@@ -12,7 +11,6 @@ __all__ = [
     "ChunkInfo",
     "ChunkRecord",
     "ChunkStorage",
-    "InMemoryChunkStorage",
     "InMemoryMetadataRepository",
     "MemoryStorageProvider",
     "MetadataRepository",
