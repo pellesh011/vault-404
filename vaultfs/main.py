@@ -87,7 +87,6 @@ async def _init_telegram(registry: StorageProviderRegistry, session: AsyncSessio
         logger.warning("Telegram not configured, skipping telegram provider")
         return
 
-    telegram_metadata = SqlAlchemyMetadataRepository(session)
     telegram_config = ProviderConfig(name="telegram", type="telegram")
     telegram_provider = TelegramStorageProvider(config=telegram_config)
     channel_id_raw = os.getenv("TELEGRAM_CHANNEL_ID")
@@ -95,7 +94,6 @@ async def _init_telegram(registry: StorageProviderRegistry, session: AsyncSessio
         await telegram_provider.init(
             api_id=int(telegram_api_id),
             api_hash=telegram_api_hash,
-            metadata=telegram_metadata,
             phone=telegram_phone,
             channel_id=int(channel_id_raw) if channel_id_raw else None,
             session_name=_env_str("TELEGRAM_SESSION_NAME", "vault_session"),

@@ -1,9 +1,10 @@
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from typing import NewType
 
-ChunkId = NewType("ChunkId", str)
+ChunkId = NewType("ChunkId", uuid.UUID)
 
 
 @dataclass(frozen=True)
@@ -17,11 +18,6 @@ class ChunkInfo:
 @dataclass(frozen=True)
 class ChunkCreateResult:
     chunk_id: ChunkId
-    external_id: str
-
-
-@dataclass(frozen=True)
-class ProviderStorageChunkCreateResult:
     external_id: str
 
 

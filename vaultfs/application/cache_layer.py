@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
 from collections import OrderedDict
 from pathlib import Path
 
@@ -96,7 +97,7 @@ class MultiLevelCache:
         self.l1 = LRUCache(max_size=l1_max_size)
         self.l2 = SSDDirectoryCache(path=l2_path, max_size=l2_max_size)
 
-    async def _resolve_provider(self, chunk_id: str) -> StorageProvider:
+    async def _resolve_provider(self, chunk_id: uuid.UUID) -> StorageProvider:
         name = await self._metadata.get_provider_name_for_chunk(chunk_id)
         return self._registry.get(name)
 
@@ -110,8 +111,10 @@ class MultiLevelCache:
             await self.l1.set(chunk_id, cached)
             return cached
 
-        provider = await self._resolve_provider(chunk_id)
-        data = await provider.get_chunk(ChunkId(chunk_id))
+        cid = uuid.UUID(chunk_id)
+        provider = await self._resolve_provider(cid)
+        message_id = await self._metadata.get_message_id(ChunkId(cid))
+        data = await provider.get_chunk(str(message_id))
         await self.l2.set(chunk_id, data)
         await self.l1.set(chunk_id, data)
         return data

@@ -1,7 +1,8 @@
 import hashlib
+import uuid
 from datetime import UTC, datetime
 
-from vaultfs.storage.interface import ChunkCreateResult, ChunkId, ChunkInfo
+from vaultfs.storage.interface import ChunkInfo
 from vaultfs.storage.provider import ProviderConfig, StorageProvider
 
 
@@ -10,8 +11,8 @@ class MemoryStorageProvider(StorageProvider):
 
     def __init__(self, config: ProviderConfig) -> None:
         super().__init__(config)
-        self._data: dict[ChunkId, bytes] = {}
-        self._info: dict[ChunkId, ChunkInfo] = {}
+        self._data: dict[str, bytes] = {}
+        self._info: dict[str, ChunkInfo] = {}
 
     async def init(self, **kwargs: object) -> None:
         """Нет дополнительной инициализации для in-memory провайдера."""
@@ -20,31 +21,25 @@ class MemoryStorageProvider(StorageProvider):
     def name(self) -> str:  # type: ignore[override]
         return self.NAME
 
-    async def create_chunk(self, data: bytes) -> ChunkCreateResult:
-        chunk_id = ChunkId(hashlib.sha256(data).hexdigest())
-        if chunk_id not in self._data:
-            self._data[chunk_id] = data
-            self._info[chunk_id] = ChunkInfo(
-                size=len(data),
-                sha256=hashlib.sha256(data).digest(),
-                created_at=datetime.now(UTC),
-                storage_provider_id="memory",
-            )
-        return ChunkCreateResult(chunk_id=chunk_id, external_id=chunk_id)
+    async def create_chunk(self, data: bytes) -> str:
+        external_id = str(uuid.uuid4())
+        self._data[external_id] = data
+        self._info[external_id] = ChunkInfo(
+            size=len(data),
+            sha256=hashlib.sha256(data).digest(),
+            created_at=datetime.now(UTC),
+            storage_provider_id="memory",
+        )
+        return external_id
 
-    async def get_chunk(self, chunk_id: ChunkId) -> bytes:
-        if chunk_id not in self._data:
-            raise KeyError(f"Chunk {chunk_id} not found")
-        return self._data[chunk_id]
+    async def get_chunk(self, external_id: str) -> bytes:
+        if external_id not in self._data:
+            raise KeyError(f"Chunk {external_id} not found")
+        return self._data[external_id]
 
-    async def delete_chunk(self, chunk_id: ChunkId) -> None:
-        self._data.pop(chunk_id, None)
-        self._info.pop(chunk_id, None)
-
-    async def stat(self, chunk_id: ChunkId) -> ChunkInfo:
-        if chunk_id not in self._info:
-            raise KeyError(f"Chunk {chunk_id} not found")
-        return self._info[chunk_id]
+    async def delete_chunk(self, external_id: str) -> None:
+        self._data.pop(external_id, None)
+        self._info.pop(external_id, None)
 
     async def is_healthy(self) -> bool:
         return True

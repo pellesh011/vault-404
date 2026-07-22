@@ -1,3 +1,4 @@
+import uuid
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 
@@ -42,7 +43,7 @@ class FileChunk:
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
     ) -> None:
         self.id = id
         self.node_id = node_id
@@ -54,7 +55,7 @@ class FileChunk:
 class Chunk:
     def __init__(
         self,
-        id: str,
+        id: uuid.UUID,
         size: int,
         sha256: bytes | None = None,
         external_id: str | None = None,
@@ -106,17 +107,17 @@ class MetadataRepository(ABC):
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
     ) -> None: ...
 
     @abstractmethod
     async def get_chunks(self, node_id: int) -> list[FileChunk]: ...
 
     @abstractmethod
-    async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None: ...
+    async def update_chunk(self, file_chunk_id: int, new_chunk_id: uuid.UUID) -> None: ...
 
     @abstractmethod
-    async def get_provider_name_for_chunk(self, chunk_id: str) -> str: ...
+    async def get_provider_name_for_chunk(self, chunk_id: uuid.UUID) -> str: ...
 
     @abstractmethod
     async def get_orphaned_chunks(self) -> list[Chunk]: ...
@@ -133,7 +134,7 @@ class MetadataRepository(ABC):
     @abstractmethod
     async def save_chunk_with_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         size: int,
         sha256: bytes | None,
         external_id: str,
@@ -145,7 +146,7 @@ class MetadataRepository(ABC):
     @abstractmethod
     async def update_chunk_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         external_id: str,
     ) -> None: ...
 
@@ -269,7 +270,7 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
     ) -> None:
         model = FileChunkModel(
             node_id=node_id,
@@ -299,7 +300,7 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
             for m in models
         ]
 
-    async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None:
+    async def update_chunk(self, file_chunk_id: int, new_chunk_id: uuid.UUID) -> None:
         model = await self._session.get(FileChunkModel, file_chunk_id)
         if model is None:
             raise KeyError(f"FileChunk {file_chunk_id} not found")
@@ -307,7 +308,7 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
         await self._session.flush()
         await self._session.commit()
 
-    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+    async def get_provider_name_for_chunk(self, chunk_id: uuid.UUID) -> str:
         result = await self._session.execute(select(ChunkModel).where(ChunkModel.id == chunk_id))
         chunk_model = result.scalar_one_or_none()
         if chunk_model is None or chunk_model.storage_provider_id is None:
@@ -373,7 +374,7 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
 
     async def save_chunk_with_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         size: int,
         sha256: bytes | None,
         external_id: str,
@@ -408,7 +409,7 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
 
     async def update_chunk_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         external_id: str,
     ) -> None:
         model = await self._session.get(ChunkModel, chunk_id)
@@ -441,9 +442,7 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
         )
 
     async def get_message_id(self, chunk_id: ChunkId) -> int:
-        result = await self._session.execute(
-            select(ChunkModel).where(ChunkModel.id == str(chunk_id))
-        )
+        result = await self._session.execute(select(ChunkModel).where(ChunkModel.id == chunk_id))
         model = result.scalar_one_or_none()
         if model is None:
             raise KeyError(f"Chunk {chunk_id} not found")

@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 import pytest
@@ -16,8 +17,7 @@ class TestChunkStorageProtocol:
         result = await storage.create_chunk(b"hello world")
         assert isinstance(result, ChunkCreateResult)
         chunk_id = result.chunk_id
-        assert isinstance(chunk_id, str)
-        assert len(chunk_id) > 0
+        assert isinstance(chunk_id, uuid.UUID)
 
     async def test_get_chunk_returns_same_data(self, storage: InMemoryChunkStorage) -> None:
         data = b"hello world"
@@ -79,13 +79,12 @@ class TestChunkStorageProtocol:
         with pytest.raises(KeyError):
             await storage.stat(chunk_id)
 
-    async def test_duplicate_content_returns_same_id(self, storage: InMemoryChunkStorage) -> None:
-        data = b"deduplicated content"
-        result1 = await storage.create_chunk(data)
-        id1 = result1.chunk_id
-        result2 = await storage.create_chunk(data)
-        id2 = result2.chunk_id
-        assert id1 == id2
+    async def test_different_content_different_ids(self, storage: InMemoryChunkStorage) -> None:
+        data1 = b"hello"
+        data2 = b"world"
+        result1 = await storage.create_chunk(data1)
+        result2 = await storage.create_chunk(data2)
+        assert result1.chunk_id != result2.chunk_id
 
     async def test_chunk_storage_is_protocol(self) -> None:
         assert isinstance(InMemoryChunkStorage(), ChunkStorage)

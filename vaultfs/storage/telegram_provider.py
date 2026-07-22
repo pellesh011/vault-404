@@ -1,13 +1,10 @@
 import asyncio
-import hashlib
 from typing import Any, cast
 
 from telethon import TelegramClient
 from telethon.tl.custom import Message
 from telethon.tl.types import Channel
 
-from vaultfs.storage.interface import ChunkId, ChunkInfo, ProviderStorageChunkCreateResult
-from vaultfs.storage.metadata import MetadataRepository
 from vaultfs.storage.provider import ProviderConfig, StorageProvider
 
 ProxyConfig = dict[str, str | int | bool] | None
@@ -20,14 +17,12 @@ class TelegramStorageProvider(StorageProvider):
         super().__init__(config)
         self._client: TelegramClient | None = None
         self._channel: Channel | None = None
-        self._metadata: MetadataRepository | None = None
         self._semaphore: asyncio.Semaphore | None = None
 
     async def init(
         self,
         api_id: int,
         api_hash: str,
-        metadata: MetadataRepository,
         phone: str | None = None,
         channel_id: int | str | None = None,
         session_name: str = "vault_session",
@@ -35,7 +30,6 @@ class TelegramStorageProvider(StorageProvider):
         proxy: ProxyConfig = None,
         **kwargs: Any,
     ) -> None:
-        self._metadata = metadata
         self._client = TelegramClient(session_name, api_id, api_hash, proxy=proxy)
         await self._client.start(phone=phone)
         if channel_id is not None:
@@ -47,44 +41,32 @@ class TelegramStorageProvider(StorageProvider):
         return self.NAME
 
     def _ensure_initialized(self) -> None:
-        if (
-            self._client is None
-            or self._channel is None
-            or self._metadata is None
-            or self._semaphore is None
-        ):
+        if self._client is None or self._channel is None or self._semaphore is None:
             raise RuntimeError("TelegramStorageProvider not initialized. Call init() first.")
 
-    async def create_chunk(self, data: bytes) -> ProviderStorageChunkCreateResult:
+    async def create_chunk(self, data: bytes) -> str:
         self._ensure_initialized()
-        chunk_id = ChunkId(hashlib.sha256(data).hexdigest())
         async with self._semaphore:
-            uploaded = await self._client.upload_file(data, file_name=f"chunk_{chunk_id}")  # type: ignore[union-attr]
-            message = await self._client.send_file(self._channel, uploaded)  # type: ignore[union-attr]
+            uploaded = await self._client.upload_file(data, file_name=f"chunk_{id(data)}")
+            message = await self._client.send_file(self._channel, uploaded)
             message = cast(Message, message)
 
-        return ProviderStorageChunkCreateResult(external_id=str(message.id))
+        return str(message.id)
 
-    async def get_chunk(self, chunk_id: ChunkId) -> bytes:
+    async def get_chunk(self, external_id: str) -> bytes:
         self._ensure_initialized()
-        message_id = await self._metadata.get_message_id(chunk_id)  # type: ignore[union-attr]
         async with self._semaphore:
-            message = await self._client.get_messages(self._channel, ids=int(message_id))  # type: ignore[union-attr]
+            message = await self._client.get_messages(self._channel, ids=int(external_id))
             message = cast(Message | None, message)
             if message is None:
-                raise KeyError(f"Message {message_id} not found in channel")
-            data = await message.download_media(file=bytes)  # type: ignore[arg-type]
+                raise KeyError(f"Message {external_id} not found in channel")
+            data = await message.download_media(file=bytes)
         if data is None:
-            raise KeyError(f"Chunk {chunk_id} data not found")
+            raise KeyError(f"Chunk external_id={external_id} data not found")
         return data if isinstance(data, bytes) else data.encode()
 
-    async def delete_chunk(self, chunk_id: ChunkId) -> None:
+    async def delete_chunk(self, external_id: str) -> None:
         self._ensure_initialized()
-        await self._metadata.mark_deleted(chunk_id)  # type: ignore[union-attr]
-
-    async def stat(self, chunk_id: ChunkId) -> ChunkInfo:
-        self._ensure_initialized()
-        return await self._metadata.get_info(chunk_id)  # type: ignore[union-attr]
 
     async def is_healthy(self) -> bool:
         if self._client is None:
@@ -100,5 +82,4 @@ class TelegramStorageProvider(StorageProvider):
             await self._client.disconnect()
             self._client = None
         self._channel = None
-        self._metadata = None
         self._semaphore = None

@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import uuid
 from datetime import UTC, datetime
 
 from vaultfs.application.cache import CacheLayer
@@ -24,7 +25,7 @@ class ChunkManager:
         self._cache = cache
         self._default_provider = default_provider
 
-    async def _resolve_provider(self, chunk_id: str) -> StorageProvider:
+    async def _resolve_provider(self, chunk_id: uuid.UUID) -> StorageProvider:
         logger.debug("_resolve_provider: chunk_id=%s", chunk_id)
         name = await self._metadata.get_provider_name_for_chunk(chunk_id)
         logger.debug("_resolve_provider: provider name=%s", name)
@@ -97,21 +98,20 @@ class ChunkManager:
             )
 
             provider = self._registry.get(self._default_provider)
-            chunk_id = ChunkId(hashlib.sha256(merged).hexdigest())
-            create_result = await provider.create_chunk(merged)
+            chunk_id = ChunkId(uuid.uuid4())
+            external_id = await provider.create_chunk(merged)
             await self._cache.set(chunk_id, merged)
 
-            # Save chunk metadata to chunks table
             chunk_sha256 = hashlib.sha256(merged).digest()
             provider_model = await self._metadata.get_or_create_storage_provider(
                 name=provider.name,
                 type_=provider.provider_type,
             )
             await self._metadata.save_chunk_with_external_id(
-                chunk_id=str(chunk_id),
+                chunk_id=chunk_id,
                 size=len(merged),
                 sha256=chunk_sha256,
-                external_id=create_result.external_id,
+                external_id=external_id,
                 storage_provider_id=provider_model.id,
             )
 
@@ -119,14 +119,14 @@ class ChunkManager:
                 new_offset = (
                     existing.offset if chunk_offset == 0 else existing.offset + chunk_offset
                 )
-                await self._metadata.update_chunk(existing.id, str(chunk_id))
+                await self._metadata.update_chunk(existing.id, chunk_id)
             else:
                 new_offset = chunk_index * node.chunk_size
                 await self._metadata.add_chunk(
                     node_id=node_id,
                     chunk_index=chunk_index,
                     offset=new_offset,
-                    chunk_id=str(chunk_id),
+                    chunk_id=chunk_id,
                 )
 
             chunks_by_index[chunk_index] = FileChunk(
@@ -134,7 +134,7 @@ class ChunkManager:
                 node_id=node_id,
                 chunk_index=chunk_index,
                 offset=new_offset,
-                chunk_id=str(chunk_id),
+                chunk_id=chunk_id,
             )
 
             data_offset += write_size
@@ -153,7 +153,8 @@ class ChunkManager:
                 cached = await self._cache.get(chunk_id)
                 if cached is None:
                     provider = await self._resolve_provider(fc.chunk_id)
-                    data = await provider.get_chunk(chunk_id)
+                    message_id = await self._metadata.get_message_id(chunk_id)
+                    data = await provider.get_chunk(str(message_id))
                     await self._cache.set(chunk_id, data)
 
     def _find_chunk(self, chunks: list[FileChunk], index: int) -> FileChunk | None:
@@ -162,7 +163,7 @@ class ChunkManager:
                 return c
         return None
 
-    async def _load_chunk(self, chunk_id: str) -> bytes:
+    async def _load_chunk(self, chunk_id: uuid.UUID) -> bytes:
         logger.debug("_load_chunk: chunk_id=%s", chunk_id)
         key = ChunkId(chunk_id)
         cached = await self._cache.get(key)
@@ -172,7 +173,8 @@ class ChunkManager:
         logger.debug("_load_chunk: cache miss, resolving provider")
         provider = await self._resolve_provider(chunk_id)
         try:
-            data = await provider.get_chunk(key)
+            message_id = await self._metadata.get_message_id(ChunkId(chunk_id))
+            data = await provider.get_chunk(str(message_id))
             logger.debug("_load_chunk: got %d bytes from provider", len(data))
             await self._cache.set(key, data)
             return data
