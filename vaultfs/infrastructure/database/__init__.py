@@ -4,6 +4,7 @@ from vaultfs.infrastructure.database.models import (
     EncryptionKeyModel,
     FileChunkModel,
     NodeModel,
+    StorageProviderModel,
 )
 from vaultfs.infrastructure.database.repository import SqlAlchemyMetadataRepository
 
@@ -14,4 +15,5 @@ __all__ = [
     "FileChunkModel",
     "NodeModel",
     "SqlAlchemyMetadataRepository",
+    "StorageProviderModel",
 ]

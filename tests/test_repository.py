@@ -207,3 +207,85 @@ class TestSqlAlchemyMetadataRepository:
         orphaned_ids = {c.id for c in orphaned}
         assert deleted_id in orphaned_ids
         assert active_id not in orphaned_ids
+
+    async def test_get_or_create_storage_provider_creates(
+        self, repo: SqlAlchemyMetadataRepository
+    ) -> None:
+        provider = await repo.get_or_create_storage_provider(
+            name="test_provider",
+            type_="telegram",
+            description="Test provider",
+        )
+        assert provider.name == "test_provider"
+        assert provider.type == "telegram"
+        assert provider.description == "Test provider"
+        assert provider.is_active is True
+
+    async def test_get_or_create_storage_provider_returns_existing(
+        self, repo: SqlAlchemyMetadataRepository
+    ) -> None:
+        first = await repo.get_or_create_storage_provider(
+            name="existing",
+            type_="telegram",
+        )
+        second = await repo.get_or_create_storage_provider(
+            name="existing",
+            type_="telegram",
+        )
+        assert first.id == second.id
+
+    async def test_save_chunk_with_external_id(self, repo: SqlAlchemyMetadataRepository) -> None:
+        provider = await repo.get_or_create_storage_provider(
+            name="test_save",
+            type_="telegram",
+        )
+        chunk = await repo.save_chunk_with_external_id(
+            chunk_id="chunk_ext_1",
+            size=256,
+            sha256=b"hash",
+            external_id="12345",
+            storage_provider_id=provider.id,
+        )
+        assert chunk.id == "chunk_ext_1"
+        assert chunk.external_id == "12345"
+        assert chunk.storage_provider_id == provider.id
+
+    async def test_update_chunk_external_id(self, repo: SqlAlchemyMetadataRepository) -> None:
+        provider = await repo.get_or_create_storage_provider(
+            name="test_update",
+            type_="telegram",
+        )
+        await repo.save_chunk_with_external_id(
+            chunk_id="chunk_upd",
+            size=100,
+            sha256=None,
+            external_id="old_ext",
+            storage_provider_id=provider.id,
+        )
+        await repo.update_chunk_external_id("chunk_upd", "new_ext")
+        chunk = await repo.get_chunk_by_external_id("new_ext")
+        assert chunk is not None
+        assert chunk.id == "chunk_upd"
+
+    async def test_get_chunk_by_external_id_found(self, repo: SqlAlchemyMetadataRepository) -> None:
+        provider = await repo.get_or_create_storage_provider(
+            name="test_find",
+            type_="telegram",
+        )
+        await repo.save_chunk_with_external_id(
+            chunk_id="chunk_find",
+            size=50,
+            sha256=None,
+            external_id="ext_999",
+            storage_provider_id=provider.id,
+        )
+        chunk = await repo.get_chunk_by_external_id("ext_999")
+        assert chunk is not None
+        assert chunk.id == "chunk_find"
+        assert chunk.external_id == "ext_999"
+
+    async def test_get_chunk_by_external_id_not_found(
+        self, repo: SqlAlchemyMetadataRepository
+    ) -> None:
+        chunk = await repo.get_chunk_by_external_id("nonexistent")
+        assert chunk is None

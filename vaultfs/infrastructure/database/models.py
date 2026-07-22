@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -46,17 +54,38 @@ class FileChunkModel(Base):
     __table_args__ = (UniqueConstraint("node_id", "chunk_index", name="uq_node_chunk_index"),)
 
 
+class StorageProviderModel(Base):
+    __tablename__ = "storage_providers"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, onupdate=datetime.utcnow)
+    is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+
+    chunks: Mapped[list["ChunkModel"]] = relationship(back_populates="storage_provider")
+
+
 class ChunkModel(Base):
     __tablename__ = "chunks"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    external_id: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    storage_provider_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("storage_providers.id"), nullable=True
+    )
     telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
     nonce: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     auth_tag: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+
+    storage_provider: Mapped["StorageProviderModel"] = relationship(back_populates="chunks")
 
 
 class EncryptionKeyModel(Base):
