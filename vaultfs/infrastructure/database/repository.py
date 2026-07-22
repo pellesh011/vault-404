@@ -107,6 +107,8 @@ class MetadataRepository(Protocol):
 
     async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None: ...
 
+    async def get_provider_name_for_chunk(self, chunk_id: str) -> str: ...
+
     async def get_orphaned_chunks(self) -> list[Chunk]: ...
 
     async def get_or_create_storage_provider(
@@ -287,6 +289,21 @@ class SqlAlchemyMetadataRepository:
         model.chunk_id = new_chunk_id
         await self._session.flush()
         await self._session.commit()
+
+    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+        result = await self._session.execute(select(ChunkModel).where(ChunkModel.id == chunk_id))
+        chunk_model = result.scalar_one_or_none()
+        if chunk_model is None or chunk_model.storage_provider_id is None:
+            return "memory"
+        provider_result = await self._session.execute(
+            select(StorageProviderModel).where(
+                StorageProviderModel.id == chunk_model.storage_provider_id
+            )
+        )
+        provider_model = provider_result.scalar_one_or_none()
+        if provider_model is None:
+            return "memory"
+        return provider_model.name
 
     async def get_orphaned_chunks(self) -> list[Chunk]:
         result = await self._session.execute(

@@ -94,6 +94,9 @@ class BridgedMetadataRepository:
     async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None:
         return await self._bridge.run(self._repo.update_chunk(file_chunk_id, new_chunk_id))
 
+    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+        return await self._bridge.run(self._repo.get_provider_name_for_chunk(chunk_id))
+
     async def get_orphaned_chunks(self) -> list[Chunk]:
         return await self._bridge.run(self._repo.get_orphaned_chunks())
 
