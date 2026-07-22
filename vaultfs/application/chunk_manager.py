@@ -4,25 +4,25 @@ from vaultfs.application.cache import CacheLayer
 from vaultfs.infrastructure.database.repository import FileChunk, MetadataRepository
 from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.provider import StorageProvider
-from vaultfs.storage.provider_factory import StorageProviderFactory
+from vaultfs.storage.provider_factory import StorageProviderRegistry
 
 
 class ChunkManager:
     def __init__(
         self,
-        factory: StorageProviderFactory,
+        registry: StorageProviderRegistry,
         metadata: MetadataRepository,
         cache: CacheLayer,
         default_provider: str = "memory",
     ) -> None:
-        self._factory = factory
+        self._registry = registry
         self._metadata = metadata
         self._cache = cache
         self._default_provider = default_provider
 
     async def _resolve_provider(self, chunk_id: str) -> StorageProvider:
         name = await self._metadata.get_provider_name_for_chunk(chunk_id)
-        return await self._factory.get_provider(name)
+        return self._registry.get(name)
 
     async def read(self, node_id: int, offset: int, size: int) -> bytes:
         node = await self._metadata.get_node(node_id)
@@ -84,7 +84,7 @@ class ChunkManager:
                 + existing_data[chunk_offset + write_size :]
             )
 
-            provider = await self._factory.get_provider(self._default_provider)
+            provider = self._registry.get(self._default_provider)
             new_chunk_id = await provider.create_chunk(merged)
             await self._cache.set(new_chunk_id, merged)
 

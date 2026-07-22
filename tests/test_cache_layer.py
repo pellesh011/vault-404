@@ -5,6 +5,7 @@ import pytest
 
 from vaultfs.application.cache_layer import LRUCache, MultiLevelCache, SSDDirectoryCache
 from vaultfs.storage.interface import ChunkId
+from vaultfs.storage.provider_factory import StorageProviderRegistry
 
 
 @pytest.fixture
@@ -153,23 +154,19 @@ class TestMultiLevelCache:
         return mock
 
     @pytest.fixture
-    def factory(self, storage: AsyncMock) -> AsyncMock:
-        mock = AsyncMock()
-
-        async def get_provider(name: str) -> AsyncMock:
-            return storage
-
-        mock.get_provider = AsyncMock(side_effect=get_provider)
-        return mock
+    def registry(self, storage: AsyncMock) -> StorageProviderRegistry:
+        r = StorageProviderRegistry()
+        r._providers["test-provider"] = storage
+        return r
 
     @pytest.fixture
     def cache(
         self,
-        factory: AsyncMock,
+        registry: StorageProviderRegistry,
         metadata: AsyncMock,
     ) -> MultiLevelCache:
         return MultiLevelCache(
-            factory=factory,
+            registry=registry,
             metadata=metadata,
             l1_max_size=100,
             l2_path="/tmp/test-cache",

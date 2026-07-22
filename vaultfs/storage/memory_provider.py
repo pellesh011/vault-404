@@ -13,6 +13,9 @@ class MemoryStorageProvider(StorageProvider):
         self._data: dict[ChunkId, bytes] = {}
         self._info: dict[ChunkId, ChunkInfo] = {}
 
+    async def init(self, **kwargs: object) -> None:
+        """Нет额外ной инициализации для in-memory провайдера."""
+
     @property
     def name(self) -> str:  # type: ignore[override]
         return self.NAME

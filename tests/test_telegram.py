@@ -1,4 +1,5 @@
-from unittest.mock import AsyncMock, MagicMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -39,13 +40,12 @@ async def provider(
     config: ProviderConfig,
     metadata: InMemoryMetadataRepository,
 ) -> TelegramStorageProvider:
-    return TelegramStorageProvider(
-        config=config,
-        client=mock_client,
-        channel=mock_channel,
-        metadata=metadata,
-        max_concurrent=10,
-    )
+    p = TelegramStorageProvider(config=config)
+    p._client = mock_client
+    p._channel = mock_channel
+    p._metadata = metadata
+    p._semaphore = asyncio.Semaphore(10)
+    return p
 
 
 class TestTelegramStorageProvider:
@@ -215,8 +215,6 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
 
-        import asyncio
-
         async def delayed_upload(*args: object, **kwargs: object) -> MagicMock:
             await asyncio.sleep(0.05)
             return MagicMock()
@@ -244,8 +242,76 @@ class TestTelegramStorageProvider:
         mock_client.get_me = AsyncMock(side_effect=Exception("connection failed"))
         assert await provider.is_healthy() is False
 
+    async def test_is_healthy_returns_false_when_not_initialized(
+        self,
+        config: ProviderConfig,
+    ) -> None:
+        p = TelegramStorageProvider(config=config)
+        assert await p.is_healthy() is False
+
     async def test_name_property(
         self,
         provider: TelegramStorageProvider,
     ) -> None:
         assert provider.name == TelegramStorageProvider.NAME
+
+    async def test_not_initialized_raises(self, config: ProviderConfig) -> None:
+        p = TelegramStorageProvider(config=config)
+        with pytest.raises(RuntimeError, match="not initialized"):
+            await p.create_chunk(b"data")
+
+    async def test_not_initialized_get_chunk_raises(self, config: ProviderConfig) -> None:
+        p = TelegramStorageProvider(config=config)
+        with pytest.raises(RuntimeError, match="not initialized"):
+            await p.get_chunk(ChunkId("test"))
+
+    async def test_not_initialized_delete_chunk_raises(self, config: ProviderConfig) -> None:
+        p = TelegramStorageProvider(config=config)
+        with pytest.raises(RuntimeError, match="not initialized"):
+            await p.delete_chunk(ChunkId("test"))
+
+    async def test_not_initialized_stat_raises(self, config: ProviderConfig) -> None:
+        p = TelegramStorageProvider(config=config)
+        with pytest.raises(RuntimeError, match="not initialized"):
+            await p.stat(ChunkId("test"))
+
+    async def test_init_sets_state(
+        self,
+        config: ProviderConfig,
+        metadata: InMemoryMetadataRepository,
+    ) -> None:
+        p = TelegramStorageProvider(config=config)
+        mock_client = MagicMock()
+        mock_channel = MagicMock()
+
+        with patch(
+            "vaultfs.storage.telegram_provider.TelegramClient",
+            return_value=mock_client,
+        ):
+            mock_client.start = AsyncMock()
+            mock_client.get_entity = AsyncMock(return_value=mock_channel)
+            await p.init(
+                api_id=12345,
+                api_hash="test_hash",
+                metadata=metadata,
+                phone="+1234567890",
+                channel_id="test_channel",
+            )
+
+        assert p._client is mock_client
+        assert p._channel is mock_channel
+        assert p._metadata is metadata
+        assert p._semaphore is not None
+
+    async def test_close_resets_state(
+        self,
+        provider: TelegramStorageProvider,
+        mock_client: MagicMock,
+    ) -> None:
+        mock_client.disconnect = AsyncMock()
+        await provider.close()
+
+        assert provider._client is None
+        assert provider._channel is None
+        assert provider._metadata is None
+        assert provider._semaphore is None

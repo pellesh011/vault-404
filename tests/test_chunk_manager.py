@@ -10,7 +10,7 @@ from vaultfs.infrastructure.database.repository import FileChunk, MetadataReposi
 from vaultfs.storage.interface import ChunkId, ChunkInfo
 from vaultfs.storage.memory_provider import MemoryStorageProvider
 from vaultfs.storage.provider import ProviderConfig
-from vaultfs.storage.provider_factory import StorageProviderFactory
+from vaultfs.storage.provider_factory import StorageProviderRegistry
 
 PROVIDER_NAME = "memory"
 
@@ -97,10 +97,10 @@ def provider() -> MemoryStorageProvider:
 
 
 @pytest.fixture
-def factory(provider: MemoryStorageProvider) -> StorageProviderFactory:
-    f = StorageProviderFactory()
-    f._cache[PROVIDER_NAME] = provider
-    return f
+def registry(provider: MemoryStorageProvider) -> StorageProviderRegistry:
+    r = StorageProviderRegistry()
+    r.add(provider)
+    return r
 
 
 @pytest.fixture
@@ -122,7 +122,7 @@ def cache() -> CacheLayer:
 
 @pytest.fixture
 def manager(
-    factory: StorageProviderFactory,
+    registry: StorageProviderRegistry,
     metadata: _FakeMetadata,
     cache: CacheLayer,
     chunk_data: dict[str, bytes],
@@ -143,7 +143,7 @@ def manager(
             created_at=datetime.now(),
         )
 
-    mgr = ChunkManager(factory=factory, metadata=metadata, cache=cache)
+    mgr = ChunkManager(registry=registry, metadata=metadata, cache=cache)
     return mgr
 
 

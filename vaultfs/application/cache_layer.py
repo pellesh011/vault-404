@@ -8,7 +8,7 @@ from pathlib import Path
 from vaultfs.infrastructure.database.repository import MetadataRepository
 from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.provider import StorageProvider
-from vaultfs.storage.provider_factory import StorageProviderFactory
+from vaultfs.storage.provider_factory import StorageProviderRegistry
 
 
 class LRUCache:
@@ -85,20 +85,20 @@ class SSDDirectoryCache:
 class MultiLevelCache:
     def __init__(
         self,
-        factory: StorageProviderFactory,
+        registry: StorageProviderRegistry,
         metadata: MetadataRepository,
         l1_max_size: int,
         l2_path: str | Path,
         l2_max_size: int = 0,
     ) -> None:
-        self._factory = factory
+        self._registry = registry
         self._metadata = metadata
         self.l1 = LRUCache(max_size=l1_max_size)
         self.l2 = SSDDirectoryCache(path=l2_path, max_size=l2_max_size)
 
     async def _resolve_provider(self, chunk_id: str) -> StorageProvider:
         name = await self._metadata.get_provider_name_for_chunk(chunk_id)
-        return await self._factory.get_provider(name)
+        return self._registry.get(name)
 
     async def get_chunk(self, chunk_id: str) -> bytes:
         cached = await self.l1.get(chunk_id)

@@ -12,7 +12,7 @@ from vaultfs.infrastructure.database.repository import FileChunk, Node
 from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.memory_provider import MemoryStorageProvider
 from vaultfs.storage.provider import ProviderConfig
-from vaultfs.storage.provider_factory import StorageProviderFactory
+from vaultfs.storage.provider_factory import StorageProviderRegistry
 
 PROVIDER_NAME = "memory"
 
@@ -142,19 +142,19 @@ def provider() -> MemoryStorageProvider:
 
 
 @pytest.fixture
-def factory(provider: MemoryStorageProvider) -> StorageProviderFactory:
-    f = StorageProviderFactory()
-    f._cache[PROVIDER_NAME] = provider
-    return f
+def registry(provider: MemoryStorageProvider) -> StorageProviderRegistry:
+    r = StorageProviderRegistry()
+    r.add(provider)
+    return r
 
 
 @pytest.fixture
 def chunk_manager(
     metadata: InMemoryMetadataRepo,
-    factory: StorageProviderFactory,
+    registry: StorageProviderRegistry,
 ) -> ChunkManager:
     cache = InMemoryCache()
-    return ChunkManager(factory=factory, metadata=metadata, cache=cache)
+    return ChunkManager(registry=registry, metadata=metadata, cache=cache)
 
 
 @pytest.fixture
@@ -337,11 +337,11 @@ class TestFileManager:
     async def test_initialize_idempotent(self, metadata: InMemoryMetadataRepo) -> None:
         acl = InMemoryACL()
         policy = DefaultChunkPolicy()
-        factory = StorageProviderFactory()
+        registry = StorageProviderRegistry()
         provider = MemoryStorageProvider(config=ProviderConfig(name=PROVIDER_NAME, type="memory"))
-        factory._cache[PROVIDER_NAME] = provider
+        registry.add(provider)
         cache = InMemoryCache()
-        cm = ChunkManager(factory=factory, metadata=metadata, cache=cache)
+        cm = ChunkManager(registry=registry, metadata=metadata, cache=cache)
         fm1 = FileManager(metadata=metadata, chunk_manager=cm, acl=acl, chunk_policy=policy)
         await fm1.initialize()
         root_id1 = fm1.root_id
