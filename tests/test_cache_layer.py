@@ -164,31 +164,23 @@ class TestMultiLevelCache:
         assert result == b"l2-data"
         assert await cache.l1.get("chunk-1") == b"l2-data"
 
-    async def test_miss_loads_from_storage(
-        self, cache: MultiLevelCache
-    ) -> None:
+    async def test_miss_loads_from_storage(self, cache: MultiLevelCache) -> None:
         result = await cache.get_chunk("chunk-in-storage")
         assert result == b"from-storage"
 
-    async def test_miss_caches_in_l2_and_l1(
-        self, cache: MultiLevelCache
-    ) -> None:
+    async def test_miss_caches_in_l2_and_l1(self, cache: MultiLevelCache) -> None:
         await cache.get_chunk("chunk-in-storage")
         assert await cache.l2.get("chunk-in-storage") == b"from-storage"
         assert await cache.l1.get("chunk-in-storage") == b"from-storage"
 
-    async def test_invalidate_removes_from_both(
-        self, cache: MultiLevelCache
-    ) -> None:
+    async def test_invalidate_removes_from_both(self, cache: MultiLevelCache) -> None:
         await cache.l1.set("chunk-1", b"data")
         await cache.l2.set("chunk-1", b"data")
         await cache.invalidate("chunk-1")
         assert await cache.l1.get("chunk-1") is None
         assert await cache.l2.get("chunk-1") is None
 
-    async def test_get_nonexistent_raises(
-        self, cache: MultiLevelCache
-    ) -> None:
+    async def test_get_nonexistent_raises(self, cache: MultiLevelCache) -> None:
         with pytest.raises(KeyError):
             await cache.get_chunk("nonexistent")
 

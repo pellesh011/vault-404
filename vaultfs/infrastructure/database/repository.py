@@ -8,6 +8,7 @@ from vaultfs.infrastructure.database.models import (
     ChunkModel,
     FileChunkModel,
     NodeModel,
+    StorageProviderModel,
 )
 
 
@@ -55,16 +56,24 @@ class Chunk:
         id: str,
         size: int,
         sha256: bytes | None = None,
+        external_id: str | None = None,
+        storage_provider_id: str | None = None,
         telegram_message_id: int | None = None,
         created_at: datetime | None = None,
         deleted_at: datetime | None = None,
+        nonce: bytes | None = None,
+        auth_tag: bytes | None = None,
     ) -> None:
         self.id = id
         self.size = size
         self.sha256 = sha256
+        self.external_id = external_id
+        self.storage_provider_id = storage_provider_id
         self.telegram_message_id = telegram_message_id
         self.created_at = created_at
         self.deleted_at = deleted_at
+        self.nonce = nonce
+        self.auth_tag = auth_tag
 
 
 class MetadataRepository(Protocol):
@@ -95,6 +104,36 @@ class MetadataRepository(Protocol):
     async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None: ...
 
     async def get_orphaned_chunks(self) -> list[Chunk]: ...
+
+    async def get_or_create_storage_provider(
+        self,
+        name: str,
+        type_: str,
+        description: str = "",
+        config: dict | None = None,
+    ) -> StorageProviderModel: ...
+
+    async def save_chunk_with_external_id(
+        self,
+        chunk_id: str,
+        size: int,
+        sha256: bytes | None,
+        external_id: str,
+        storage_provider_id: str,
+        nonce: bytes | None = None,
+        auth_tag: bytes | None = None,
+    ) -> Chunk: ...
+
+    async def update_chunk_external_id(
+        self,
+        chunk_id: str,
+        external_id: str,
+    ) -> None: ...
+
+    async def get_chunk_by_external_id(
+        self,
+        external_id: str,
+    ) -> Chunk | None: ...
 
 
 class SqlAlchemyMetadataRepository:
@@ -222,9 +261,110 @@ class SqlAlchemyMetadataRepository:
                 id=m.id,
                 size=m.size,
                 sha256=m.sha256,
+                external_id=m.external_id,
+                storage_provider_id=m.storage_provider_id,
                 telegram_message_id=m.telegram_message_id,
                 created_at=m.created_at,
                 deleted_at=m.deleted_at,
+                nonce=m.nonce,
+                auth_tag=m.auth_tag,
             )
             for m in models
         ]
+
+    async def get_or_create_storage_provider(
+        self,
+        name: str,
+        type_: str,
+        description: str = "",
+        config: dict | None = None,
+    ) -> StorageProviderModel:
+        result = await self._session.execute(
+            select(StorageProviderModel).where(StorageProviderModel.name == name)
+        )
+        model = result.scalar_one_or_none()
+        if model is not None:
+            return model
+
+        now = datetime.now(UTC)
+        model = StorageProviderModel(
+            id=name,
+            name=name,
+            type=type_,
+            description=description,
+            config=config,
+            created_at=now,
+            updated_at=now,
+            is_active=True,
+        )
+        self._session.add(model)
+        await self._session.flush()
+        return model
+
+    async def save_chunk_with_external_id(
+        self,
+        chunk_id: str,
+        size: int,
+        sha256: bytes | None,
+        external_id: str,
+        storage_provider_id: str,
+        nonce: bytes | None = None,
+        auth_tag: bytes | None = None,
+    ) -> Chunk:
+        now = datetime.now(UTC)
+        model = ChunkModel(
+            id=chunk_id,
+            size=size,
+            sha256=sha256,
+            external_id=external_id,
+            storage_provider_id=storage_provider_id,
+            created_at=now,
+            nonce=nonce,
+            auth_tag=auth_tag,
+        )
+        self._session.add(model)
+        await self._session.flush()
+        return Chunk(
+            id=model.id,
+            size=model.size,
+            sha256=model.sha256,
+            external_id=model.external_id,
+            storage_provider_id=model.storage_provider_id,
+            created_at=model.created_at,
+            nonce=model.nonce,
+            auth_tag=model.auth_tag,
+        )
+
+    async def update_chunk_external_id(
+        self,
+        chunk_id: str,
+        external_id: str,
+    ) -> None:
+        model = await self._session.get(ChunkModel, chunk_id)
+        if model is None:
+            raise KeyError(f"Chunk {chunk_id} not found")
+        model.external_id = external_id
+        await self._session.flush()
+
+    async def get_chunk_by_external_id(
+        self,
+        external_id: str,
+    ) -> Chunk | None:
+        result = await self._session.execute(
+            select(ChunkModel).where(ChunkModel.external_id == external_id)
+        )
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return Chunk(
+            id=model.id,
+            size=model.size,
+            sha256=model.sha256,
+            external_id=model.external_id,
+            storage_provider_id=model.storage_provider_id,
+            telegram_message_id=model.telegram_message_id,
+            created_at=model.created_at,
+            deleted_at=model.deleted_at,
+            nonce=model.nonce,
+            auth_tag=model.auth_tag,
+        )
