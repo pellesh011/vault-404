@@ -6,9 +6,29 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from vaultfs.storage.interface import ChunkId, ChunkInfo, ProviderStorageChunkCreateResult
-from vaultfs.storage.metadata import InMemoryMetadataRepository
 from vaultfs.storage.provider import ProviderConfig
 from vaultfs.storage.telegram_provider import TelegramStorageProvider
+
+
+class _FakeMetadata:
+    def __init__(self) -> None:
+        self._store: dict[ChunkId, tuple[int, ChunkInfo]] = {}
+
+    async def save(self, chunk_id: ChunkId, message_id: int, info: ChunkInfo) -> None:
+        self._store[chunk_id] = (message_id, info)
+
+    async def get_message_id(self, chunk_id: ChunkId) -> int:
+        if chunk_id not in self._store:
+            raise KeyError(f"Chunk {chunk_id} not found")
+        return self._store[chunk_id][0]
+
+    async def get_info(self, chunk_id: ChunkId) -> ChunkInfo:
+        if chunk_id not in self._store:
+            raise KeyError(f"Chunk {chunk_id} not found")
+        return self._store[chunk_id][1]
+
+    async def mark_deleted(self, chunk_id: ChunkId) -> None:
+        self._store.pop(chunk_id, None)
 
 
 @pytest.fixture
@@ -31,8 +51,8 @@ def config() -> ProviderConfig:
 
 
 @pytest.fixture
-def metadata() -> InMemoryMetadataRepository:
-    return InMemoryMetadataRepository()
+def metadata() -> _FakeMetadata:
+    return _FakeMetadata()
 
 
 @pytest.fixture
@@ -40,7 +60,7 @@ async def provider(
     mock_client: MagicMock,
     mock_channel: MagicMock,
     config: ProviderConfig,
-    metadata: InMemoryMetadataRepository,
+    metadata: _FakeMetadata,
 ) -> TelegramStorageProvider:
     p = TelegramStorageProvider(config=config)
     p._client = mock_client
@@ -51,7 +71,7 @@ async def provider(
 
 
 async def _save_chunk(
-    metadata: InMemoryMetadataRepository,
+    metadata: _FakeMetadata,
     provider: TelegramStorageProvider,
     data: bytes,
     result: ProviderStorageChunkCreateResult,
@@ -90,7 +110,7 @@ class TestTelegramStorageProvider:
         self,
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
-        metadata: InMemoryMetadataRepository,
+        metadata: _FakeMetadata,
     ) -> None:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=999)
@@ -120,7 +140,7 @@ class TestTelegramStorageProvider:
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
         mock_channel: MagicMock,
-        metadata: InMemoryMetadataRepository,
+        metadata: _FakeMetadata,
     ) -> None:
         mock_client.upload_file.return_value = MagicMock()
         mock_message = MagicMock()
@@ -141,7 +161,7 @@ class TestTelegramStorageProvider:
         self,
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
-        metadata: InMemoryMetadataRepository,
+        metadata: _FakeMetadata,
     ) -> None:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
@@ -160,7 +180,7 @@ class TestTelegramStorageProvider:
         self,
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
-        metadata: InMemoryMetadataRepository,
+        metadata: _FakeMetadata,
     ) -> None:
         large_data = b"x" * (10 * 1024 * 1024)
         mock_client.upload_file.return_value = MagicMock()
@@ -181,7 +201,7 @@ class TestTelegramStorageProvider:
         self,
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
-        metadata: InMemoryMetadataRepository,
+        metadata: _FakeMetadata,
     ) -> None:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
@@ -197,7 +217,7 @@ class TestTelegramStorageProvider:
         self,
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
-        metadata: InMemoryMetadataRepository,
+        metadata: _FakeMetadata,
     ) -> None:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
@@ -308,7 +328,7 @@ class TestTelegramStorageProvider:
     async def test_init_sets_state(
         self,
         config: ProviderConfig,
-        metadata: InMemoryMetadataRepository,
+        metadata: _FakeMetadata,
     ) -> None:
         p = TelegramStorageProvider(config=config)
         mock_client = MagicMock()
