@@ -1,7 +1,7 @@
-from vaultfs.storage.encryption import NONCE_SIZE, KeyManager
+from vaultfs.storage.encryption import NONCE_SIZE, EncryptionLayer, KeyManager
 
 
-class AESGCMEncryptionLayer:
+class AESGCMEncryptionLayer(EncryptionLayer):
     def __init__(self, key_manager: KeyManager, node_id: int) -> None:
         self._key_manager = key_manager
         self._node_id = node_id

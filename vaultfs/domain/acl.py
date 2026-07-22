@@ -1,4 +1,4 @@
-from typing import Protocol
+from abc import ABC, abstractmethod
 
 from vaultfs.domain.exceptions import PermissionDeniedError
 
@@ -9,7 +9,8 @@ PERM_EXECUTE = 4
 PERM_ALL = PERM_READ | PERM_WRITE | PERM_EXECUTE
 
 
-class ACLSystem(Protocol):
+class ACLSystem(ABC):
+    @abstractmethod
     async def check_permission(
         self,
         node_id: int,
@@ -17,6 +18,7 @@ class ACLSystem(Protocol):
         principal: str = "",
     ) -> None: ...
 
+    @abstractmethod
     async def set_permission(
         self,
         node_id: int,
@@ -24,6 +26,7 @@ class ACLSystem(Protocol):
         permissions: int,
     ) -> None: ...
 
+    @abstractmethod
     async def get_permissions(
         self,
         node_id: int,
@@ -31,7 +34,7 @@ class ACLSystem(Protocol):
     ) -> int: ...
 
 
-class InMemoryACL:
+class InMemoryACL(ACLSystem):
     def __init__(self) -> None:
         self._acls: dict[tuple[int, str], int] = {}
 

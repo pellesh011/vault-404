@@ -1,17 +1,20 @@
-from typing import Protocol
+from abc import ABC, abstractmethod
 
 from vaultfs.storage.interface import ChunkId
 
 
-class CacheLayer(Protocol):
+class CacheLayer(ABC):
+    @abstractmethod
     async def get(self, key: ChunkId) -> bytes | None: ...
 
+    @abstractmethod
     async def set(self, key: ChunkId, value: bytes) -> None: ...
 
+    @abstractmethod
     async def clear(self) -> None: ...
 
 
-class InMemoryCache:
+class InMemoryCache(CacheLayer):
     def __init__(self) -> None:
         self._data: dict[ChunkId, bytes] = {}
 

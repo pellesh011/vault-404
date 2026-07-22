@@ -6,11 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from vaultfs.storage.interface import ChunkId, ChunkInfo, ProviderStorageChunkCreateResult
+from vaultfs.storage.metadata import MetadataRepository as ChunkMetadataRepository
 from vaultfs.storage.provider import ProviderConfig
 from vaultfs.storage.telegram_provider import TelegramStorageProvider
 
 
-class _FakeMetadata:
+class _FakeMetadata(ChunkMetadataRepository):
     def __init__(self) -> None:
         self._store: dict[ChunkId, tuple[int, ChunkInfo]] = {}
 

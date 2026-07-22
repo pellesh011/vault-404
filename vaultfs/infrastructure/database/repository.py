@@ -1,5 +1,5 @@
+from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import Protocol
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +75,8 @@ class Chunk:
         self.auth_tag = auth_tag
 
 
-class MetadataRepository(Protocol):
+class MetadataRepository(ABC):
+    @abstractmethod
     async def create_node(
         self,
         parent_id: int | None,
@@ -84,16 +85,22 @@ class MetadataRepository(Protocol):
         chunk_size: int | None = None,
     ) -> Node: ...
 
+    @abstractmethod
     async def get_node(self, node_id: int) -> Node: ...
 
+    @abstractmethod
     async def get_root_node(self) -> Node | None: ...
 
+    @abstractmethod
     async def list_children(self, parent_id: int) -> list[Node]: ...
 
+    @abstractmethod
     async def delete_node(self, node_id: int) -> None: ...
 
+    @abstractmethod
     async def update_node_size(self, node_id: int, size: int) -> None: ...
 
+    @abstractmethod
     async def add_chunk(
         self,
         node_id: int,
@@ -102,14 +109,19 @@ class MetadataRepository(Protocol):
         chunk_id: str,
     ) -> None: ...
 
+    @abstractmethod
     async def get_chunks(self, node_id: int) -> list[FileChunk]: ...
 
+    @abstractmethod
     async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None: ...
 
+    @abstractmethod
     async def get_provider_name_for_chunk(self, chunk_id: str) -> str: ...
 
+    @abstractmethod
     async def get_orphaned_chunks(self) -> list[Chunk]: ...
 
+    @abstractmethod
     async def get_or_create_storage_provider(
         self,
         name: str,
@@ -118,6 +130,7 @@ class MetadataRepository(Protocol):
         config: dict | None = None,
     ) -> StorageProviderModel: ...
 
+    @abstractmethod
     async def save_chunk_with_external_id(
         self,
         chunk_id: str,
@@ -129,21 +142,24 @@ class MetadataRepository(Protocol):
         auth_tag: bytes | None = None,
     ) -> Chunk: ...
 
+    @abstractmethod
     async def update_chunk_external_id(
         self,
         chunk_id: str,
         external_id: str,
     ) -> None: ...
 
+    @abstractmethod
     async def get_chunk_by_external_id(
         self,
         external_id: str,
     ) -> Chunk | None: ...
 
+    @abstractmethod
     async def get_message_id(self, chunk_id: ChunkId) -> int: ...
 
 
-class SqlAlchemyMetadataRepository:
+class SqlAlchemyMetadataRepository(MetadataRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 

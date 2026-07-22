@@ -2,6 +2,7 @@ from vaultfs.infrastructure.asyncio_bridge import AsyncioBridge
 from vaultfs.infrastructure.database.repository import (
     Chunk,
     FileChunk,
+    MetadataRepository,
     Node,
     SqlAlchemyMetadataRepository,
     StorageProviderModel,
@@ -46,7 +47,7 @@ class BridgedStorageProvider(StorageProvider):
             pass  # Provider may not be connected
 
 
-class BridgedMetadataRepository:
+class BridgedMetadataRepository(MetadataRepository):
     def __init__(
         self,
         repo: SqlAlchemyMetadataRepository,

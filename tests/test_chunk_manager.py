@@ -6,7 +6,13 @@ import pytest
 
 from vaultfs.application.cache import CacheLayer, InMemoryCache
 from vaultfs.application.chunk_manager import ChunkManager
-from vaultfs.infrastructure.database.repository import FileChunk, MetadataRepository, Node
+from vaultfs.infrastructure.database.repository import (
+    FileChunk,
+    Node,
+)
+from vaultfs.infrastructure.database.repository import (
+    MetadataRepository as FileMetadataRepository,
+)
 from vaultfs.storage.interface import ChunkId, ChunkInfo
 from vaultfs.storage.memory_provider import MemoryStorageProvider
 from vaultfs.storage.provider import ProviderConfig
@@ -15,7 +21,7 @@ from vaultfs.storage.provider_factory import StorageProviderRegistry
 PROVIDER_NAME = "memory"
 
 
-class _FakeMetadata:
+class _FakeMetadata:  # type: ignore[no-untyped-def]
     def __init__(self, node: Node, chunks: list[FileChunk]) -> None:
         self.node = node
         self._chunks = {c.chunk_index: c for c in chunks}
@@ -81,7 +87,7 @@ class _FakeMetadata:
         nonce: bytes | None = None,
         auth_tag: bytes | None = None,
     ) -> object:
-        pass  # No-op for tests
+        pass
 
 
 @pytest.fixture
@@ -208,7 +214,7 @@ class TestChunkManager:
     async def test_write_updates_existing_chunk(
         self,
         manager: ChunkManager,
-        metadata: MetadataRepository,
+        metadata: FileMetadataRepository,
         chunks: list[FileChunk],
     ) -> None:
         await manager.write(node_id=1, offset=2, data=b"ZZZZ")

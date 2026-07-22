@@ -1,10 +1,10 @@
 import hashlib
 from datetime import UTC, datetime
 
-from vaultfs.storage.interface import ChunkCreateResult, ChunkId, ChunkInfo
+from vaultfs.storage.interface import ChunkCreateResult, ChunkId, ChunkInfo, ChunkStorage
 
 
-class InMemoryChunkStorage:
+class InMemoryChunkStorage(ChunkStorage):
     def __init__(self) -> None:
         self._data: dict[ChunkId, bytes] = {}
         self._info: dict[ChunkId, ChunkInfo] = {}
