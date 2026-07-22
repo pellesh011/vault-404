@@ -146,10 +146,22 @@ def main() -> None:
         try:
             await pyfuse3.main()
         finally:
-            pyfuse3.close()
-            await registry.close_all()
-            await bridge.run(session.close())
-            await bridge.run(engine.dispose())
+            try:
+                pyfuse3.close()
+            except Exception:
+                pass
+            try:
+                await registry.close_all()
+            except Exception:
+                pass
+            try:
+                await bridge.run(session.close())
+            except Exception:
+                pass
+            try:
+                await bridge.run(engine.dispose())
+            except Exception:
+                pass
             bridge.close()
 
     try:
@@ -157,7 +169,6 @@ def main() -> None:
     except KeyboardInterrupt:
         logger.info("Interrupted, shutting down")
     except BaseException as e:
-        # Handle ExceptionGroup containing KeyboardInterrupt from trio
         if isinstance(e, BaseExceptionGroup):
             matched = e.subgroup(KeyboardInterrupt)
             if matched:
@@ -167,6 +178,10 @@ def main() -> None:
         else:
             logger.exception("Fatal error")
     finally:
+        # Ensure mount is cleaned up
+        import subprocess
+
+        subprocess.run(["fusermount", "-u", str(mountpoint)], capture_output=True)
         bridge.close()
 
 
