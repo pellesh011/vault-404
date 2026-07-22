@@ -207,6 +207,7 @@ After completing a task provide:
 * list of commits;
 * tests executed;
 * possible risks.
+if possible risks are exist, make issure in github
 
 Do not merge branches automatically unless explicitly requested.
 
