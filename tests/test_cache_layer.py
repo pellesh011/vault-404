@@ -143,9 +143,34 @@ class TestMultiLevelCache:
         return mock
 
     @pytest.fixture
-    def cache(self, storage: AsyncMock) -> MultiLevelCache:
+    def metadata(self) -> AsyncMock:
+        mock = AsyncMock()
+
+        async def get_provider_name_for_chunk(chunk_id: str) -> str:
+            return "test-provider"
+
+        mock.get_provider_name_for_chunk = AsyncMock(side_effect=get_provider_name_for_chunk)
+        return mock
+
+    @pytest.fixture
+    def factory(self, storage: AsyncMock) -> AsyncMock:
+        mock = AsyncMock()
+
+        async def get_provider(name: str) -> AsyncMock:
+            return storage
+
+        mock.get_provider = AsyncMock(side_effect=get_provider)
+        return mock
+
+    @pytest.fixture
+    def cache(
+        self,
+        factory: AsyncMock,
+        metadata: AsyncMock,
+    ) -> MultiLevelCache:
         return MultiLevelCache(
-            storage=storage,
+            factory=factory,
+            metadata=metadata,
             l1_max_size=100,
             l2_path="/tmp/test-cache",
             l2_max_size=200,
@@ -156,9 +181,7 @@ class TestMultiLevelCache:
         result = await cache.get_chunk("chunk-1")
         assert result == b"l1-data"
 
-    async def test_hit_l2_returns_data_and_promotes(
-        self, cache: MultiLevelCache, storage: AsyncMock
-    ) -> None:
+    async def test_hit_l2_returns_data_and_promotes(self, cache: MultiLevelCache) -> None:
         await cache.l2.set("chunk-1", b"l2-data")
         result = await cache.get_chunk("chunk-1")
         assert result == b"l2-data"
@@ -184,9 +207,7 @@ class TestMultiLevelCache:
         with pytest.raises(KeyError):
             await cache.get_chunk("nonexistent")
 
-    async def test_l1_eviction_promotes_from_l2(
-        self, cache: MultiLevelCache, storage: AsyncMock
-    ) -> None:
+    async def test_l1_eviction_promotes_from_l2(self, cache: MultiLevelCache) -> None:
         await cache.l2.set("chunk-l2", b"from-l2")
         await cache.l1.set("fill", b"x" * 90)
         result = await cache.get_chunk("chunk-l2")

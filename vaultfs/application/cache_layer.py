@@ -5,8 +5,10 @@ import shutil
 from collections import OrderedDict
 from pathlib import Path
 
+from vaultfs.infrastructure.database.repository import MetadataRepository
 from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.provider import StorageProvider
+from vaultfs.storage.provider_factory import StorageProviderFactory
 
 
 class LRUCache:
@@ -83,14 +85,20 @@ class SSDDirectoryCache:
 class MultiLevelCache:
     def __init__(
         self,
-        storage: StorageProvider,
+        factory: StorageProviderFactory,
+        metadata: MetadataRepository,
         l1_max_size: int,
         l2_path: str | Path,
         l2_max_size: int = 0,
     ) -> None:
-        self._storage = storage
+        self._factory = factory
+        self._metadata = metadata
         self.l1 = LRUCache(max_size=l1_max_size)
         self.l2 = SSDDirectoryCache(path=l2_path, max_size=l2_max_size)
+
+    async def _resolve_provider(self, chunk_id: str) -> StorageProvider:
+        name = await self._metadata.get_provider_name_for_chunk(chunk_id)
+        return await self._factory.get_provider(name)
 
     async def get_chunk(self, chunk_id: str) -> bytes:
         cached = await self.l1.get(chunk_id)
@@ -102,7 +110,8 @@ class MultiLevelCache:
             await self.l1.set(chunk_id, cached)
             return cached
 
-        data = await self._storage.get_chunk(ChunkId(chunk_id))
+        provider = await self._resolve_provider(chunk_id)
+        data = await provider.get_chunk(ChunkId(chunk_id))
         await self.l2.set(chunk_id, data)
         await self.l1.set(chunk_id, data)
         return data

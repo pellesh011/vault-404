@@ -4,18 +4,25 @@ from vaultfs.application.cache import CacheLayer
 from vaultfs.infrastructure.database.repository import FileChunk, MetadataRepository
 from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.provider import StorageProvider
+from vaultfs.storage.provider_factory import StorageProviderFactory
 
 
 class ChunkManager:
     def __init__(
         self,
-        storage: StorageProvider,
+        factory: StorageProviderFactory,
         metadata: MetadataRepository,
         cache: CacheLayer,
+        default_provider: str = "memory",
     ) -> None:
-        self._storage = storage
+        self._factory = factory
         self._metadata = metadata
         self._cache = cache
+        self._default_provider = default_provider
+
+    async def _resolve_provider(self, chunk_id: str) -> StorageProvider:
+        name = await self._metadata.get_provider_name_for_chunk(chunk_id)
+        return await self._factory.get_provider(name)
 
     async def read(self, node_id: int, offset: int, size: int) -> bytes:
         node = await self._metadata.get_node(node_id)
@@ -77,7 +84,8 @@ class ChunkManager:
                 + existing_data[chunk_offset + write_size :]
             )
 
-            new_chunk_id = await self._storage.create_chunk(merged)
+            provider = await self._factory.get_provider(self._default_provider)
+            new_chunk_id = await provider.create_chunk(merged)
             await self._cache.set(new_chunk_id, merged)
 
             if existing is not None:
@@ -117,7 +125,8 @@ class ChunkManager:
                 chunk_id = ChunkId(fc.chunk_id)
                 cached = await self._cache.get(chunk_id)
                 if cached is None:
-                    data = await self._storage.get_chunk(chunk_id)
+                    provider = await self._resolve_provider(fc.chunk_id)
+                    data = await provider.get_chunk(chunk_id)
                     await self._cache.set(chunk_id, data)
 
     def _find_chunk(self, chunks: list[FileChunk], index: int) -> FileChunk | None:
@@ -131,6 +140,7 @@ class ChunkManager:
         cached = await self._cache.get(key)
         if cached is not None:
             return cached
-        data = await self._storage.get_chunk(key)
+        provider = await self._resolve_provider(chunk_id)
+        data = await provider.get_chunk(key)
         await self._cache.set(key, data)
         return data

@@ -135,6 +135,8 @@ class MetadataRepository(Protocol):
         external_id: str,
     ) -> Chunk | None: ...
 
+    async def get_provider_name_for_chunk(self, chunk_id: str) -> str: ...
+
 
 class SqlAlchemyMetadataRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -368,3 +370,14 @@ class SqlAlchemyMetadataRepository:
             nonce=model.nonce,
             auth_tag=model.auth_tag,
         )
+
+    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+        chunk = await self._session.get(ChunkModel, chunk_id)
+        if chunk is None:
+            raise KeyError(f"Chunk {chunk_id} not found")
+        if chunk.storage_provider_id is None:
+            raise ValueError(f"Chunk {chunk_id} has no storage_provider_id")
+        provider = await self._session.get(StorageProviderModel, chunk.storage_provider_id)
+        if provider is None:
+            raise KeyError(f"StorageProvider {chunk.storage_provider_id} not found")
+        return provider.name
