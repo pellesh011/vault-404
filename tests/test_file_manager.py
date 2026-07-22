@@ -191,7 +191,9 @@ def chunk_manager(
     registry: StorageProviderRegistry,
 ) -> ChunkManager:
     cache = InMemoryCache()
-    return ChunkManager(registry=registry, metadata=metadata, cache=cache)
+    return ChunkManager(
+        registry=registry, metadata=metadata, cache=cache, default_provider=PROVIDER_NAME
+    )
 
 
 @pytest.fixture
