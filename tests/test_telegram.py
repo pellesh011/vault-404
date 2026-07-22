@@ -58,7 +58,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=12345)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        result = await provider.create_chunk(b"test data")
+        chunk_id = result.chunk_id
 
         mock_client.upload_file.assert_awaited_once_with(
             b"test data",
@@ -75,7 +76,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=999)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        result = await provider.create_chunk(b"test data")
+        chunk_id = result.chunk_id
         message_id = await metadata.get_message_id(chunk_id)
 
         assert message_id == 999
@@ -88,7 +90,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        result = await provider.create_chunk(b"test data")
+        chunk_id = result.chunk_id
 
         assert isinstance(chunk_id, str)
         assert len(chunk_id) == 64
@@ -105,7 +108,8 @@ class TestTelegramStorageProvider:
         mock_client.send_file.return_value = MagicMock(id=42)
         mock_client.get_messages.return_value = mock_message
 
-        chunk_id = await provider.create_chunk(b"test data")
+        result = await provider.create_chunk(b"test data")
+        chunk_id = result.chunk_id
         await provider.get_chunk(chunk_id)
 
         mock_client.get_messages.assert_awaited_once_with(
@@ -125,10 +129,11 @@ class TestTelegramStorageProvider:
         mock_message.download_media = AsyncMock(return_value=b"test data")
         mock_client.get_messages.return_value = mock_message
 
-        chunk_id = await provider.create_chunk(b"test data")
-        result = await provider.get_chunk(chunk_id)
+        result = await provider.create_chunk(b"test data")
+        chunk_id = result.chunk_id
+        result_data = await provider.get_chunk(chunk_id)
 
-        assert result == b"test data"
+        assert result_data == b"test data"
 
     async def test_get_chunk_large_data(
         self,
@@ -143,11 +148,12 @@ class TestTelegramStorageProvider:
         mock_message.download_media = AsyncMock(return_value=large_data)
         mock_client.get_messages.return_value = mock_message
 
-        chunk_id = await provider.create_chunk(large_data)
-        result = await provider.get_chunk(chunk_id)
+        result = await provider.create_chunk(large_data)
+        chunk_id = result.chunk_id
+        result_data = await provider.get_chunk(chunk_id)
 
-        assert result == large_data
-        assert len(result) == 10 * 1024 * 1024
+        assert result_data == large_data
+        assert len(result_data) == 10 * 1024 * 1024
 
     async def test_delete_chunk_marks_deleted(
         self,
@@ -158,7 +164,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        result = await provider.create_chunk(b"test data")
+        chunk_id = result.chunk_id
         await provider.delete_chunk(chunk_id)
 
         with pytest.raises(KeyError):
@@ -174,7 +181,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
 
-        chunk_id = await provider.create_chunk(b"test data")
+        result = await provider.create_chunk(b"test data")
+        chunk_id = result.chunk_id
         info = await provider.stat(chunk_id)
 
         assert info.size == 9
@@ -202,7 +210,8 @@ class TestTelegramStorageProvider:
         mock_client.upload_file.return_value = MagicMock()
         mock_client.send_file.return_value = MagicMock(id=1)
 
-        chunk_id = await provider.create_chunk(b"")
+        result = await provider.create_chunk(b"")
+        chunk_id = result.chunk_id
 
         assert isinstance(chunk_id, str)
         assert len(chunk_id) == 64

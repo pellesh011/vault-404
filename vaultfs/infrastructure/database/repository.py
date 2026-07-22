@@ -10,6 +10,7 @@ from vaultfs.infrastructure.database.models import (
     NodeModel,
     StorageProviderModel,
 )
+from vaultfs.storage.interface import ChunkId
 
 
 class Node:
@@ -57,8 +58,7 @@ class Chunk:
         size: int,
         sha256: bytes | None = None,
         external_id: str | None = None,
-        storage_provider_id: str | None = None,
-        telegram_message_id: int | None = None,
+        storage_provider_id: int | None = None,
         created_at: datetime | None = None,
         deleted_at: datetime | None = None,
         nonce: bytes | None = None,
@@ -69,7 +69,6 @@ class Chunk:
         self.sha256 = sha256
         self.external_id = external_id
         self.storage_provider_id = storage_provider_id
-        self.telegram_message_id = telegram_message_id
         self.created_at = created_at
         self.deleted_at = deleted_at
         self.nonce = nonce
@@ -125,7 +124,7 @@ class MetadataRepository(Protocol):
         size: int,
         sha256: bytes | None,
         external_id: str,
-        storage_provider_id: str,
+        storage_provider_id: int,
         nonce: bytes | None = None,
         auth_tag: bytes | None = None,
     ) -> Chunk: ...
@@ -140,6 +139,8 @@ class MetadataRepository(Protocol):
         self,
         external_id: str,
     ) -> Chunk | None: ...
+
+    async def get_message_id(self, chunk_id: ChunkId) -> int: ...
 
 
 class SqlAlchemyMetadataRepository:
@@ -317,7 +318,6 @@ class SqlAlchemyMetadataRepository:
                 sha256=m.sha256,
                 external_id=m.external_id,
                 storage_provider_id=m.storage_provider_id,
-                telegram_message_id=m.telegram_message_id,
                 created_at=m.created_at,
                 deleted_at=m.deleted_at,
                 nonce=m.nonce,
@@ -342,7 +342,6 @@ class SqlAlchemyMetadataRepository:
 
         now = datetime.now(UTC).replace(tzinfo=None)
         model = StorageProviderModel(
-            id=name,
             name=name,
             type=type_,
             description=description,
@@ -362,7 +361,7 @@ class SqlAlchemyMetadataRepository:
         size: int,
         sha256: bytes | None,
         external_id: str,
-        storage_provider_id: str,
+        storage_provider_id: int,
         nonce: bytes | None = None,
         auth_tag: bytes | None = None,
     ) -> Chunk:
@@ -419,9 +418,21 @@ class SqlAlchemyMetadataRepository:
             sha256=model.sha256,
             external_id=model.external_id,
             storage_provider_id=model.storage_provider_id,
-            telegram_message_id=model.telegram_message_id,
             created_at=model.created_at,
             deleted_at=model.deleted_at,
             nonce=model.nonce,
             auth_tag=model.auth_tag,
         )
+
+    async def get_message_id(self, chunk_id: ChunkId) -> int:
+        result = await self._session.execute(
+            select(ChunkModel).where(ChunkModel.id == str(chunk_id))
+        )
+        model = result.scalar_one_or_none()
+        if model is None:
+            raise KeyError(f"Chunk {chunk_id} not found")
+        if model.deleted_at is not None:
+            raise KeyError(f"Chunk {chunk_id} not found")
+        if not model.external_id:
+            raise KeyError(f"Chunk {chunk_id} has no message_id")
+        return int(model.external_id)

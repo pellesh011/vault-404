@@ -35,9 +35,12 @@ class VaultFS(Operations):
         inode: int,
         ctx: RequestContext | None = None,
     ) -> pyfuse3.EntryAttributes:
+        real_id = self._unmap_inode(inode)
+        logger.debug("getattr: inode=%d -> real_id=%d", inode, real_id)
         try:
-            node = await self._fm.stat(self._unmap_inode(inode))
+            node = await self._fm.stat(real_id)
         except KeyError:
+            logger.debug("getattr: node %d not found", real_id)
             raise FUSEError(errno.ENOENT)
 
         attr = pyfuse3.EntryAttributes()
@@ -74,14 +77,27 @@ class VaultFS(Operations):
         ctx: RequestContext | None = None,
     ) -> pyfuse3.EntryAttributes:
         name_str = name.decode("utf-8")
+        real_parent_id = self._unmap_inode(parent_inode)
+        logger.debug(
+            "lookup: parent_inode=%d -> real_parent_id=%d, name=%s",
+            parent_inode,
+            real_parent_id,
+            name_str,
+        )
         try:
-            children = await self._fm.list_directory(self._unmap_inode(parent_inode))
+            children = await self._fm.list_directory(real_parent_id)
         except KeyError:
+            logger.debug("lookup: parent node %d not found", real_parent_id)
             raise FUSEError(errno.ENOENT)
 
+        children_info = [(c.id, c.name) for c in children]
+        logger.debug("lookup: found %d children: %s", len(children), children_info)
         for child in children:
             if child.name == name_str:
-                return await self.getattr(self._map_inode(child.id))
+                result = await self.getattr(self._map_inode(child.id))
+                logger.debug("lookup: matched child id=%d -> inode=%d", child.id, result.st_ino)
+                return result
+        logger.debug("lookup: name '%s' not found in children", name_str)
         raise FUSEError(errno.ENOENT)
 
     async def readdir(
@@ -90,10 +106,12 @@ class VaultFS(Operations):
         start_id: int,
         token: pyfuse3.ReaddirToken,
     ) -> None:
+        real_id = self._unmap_inode(fh)
+        logger.debug("readdir: fh=%d -> real_id=%d, start_id=%d", fh, real_id, start_id)
         try:
-            real_id = self._unmap_inode(fh)
             children = await self._fm.list_directory(real_id)
         except KeyError:
+            logger.debug("readdir: parent node %d not found", real_id)
             raise FUSEError(errno.ENOENT)
 
         if start_id == 0:
@@ -117,11 +135,15 @@ class VaultFS(Operations):
         flags: int,
         ctx: RequestContext | None = None,
     ) -> pyfuse3.FileInfo:
+        real_id = self._unmap_inode(inode)
+        logger.debug("open: inode=%d -> real_id=%d, flags=%d", inode, real_id, flags)
         try:
-            fh = await self._fm.open(self._unmap_inode(inode), flags)
+            fh = await self._fm.open(real_id, flags)
         except KeyError:
+            logger.debug("open: node %d not found", real_id)
             raise FUSEError(errno.ENOENT)
         except PermissionError:
+            logger.debug("open: permission denied for node %d", real_id)
             raise FUSEError(errno.EACCES)
         self._handles[fh.node_id] = fh.node_id
         return pyfuse3.FileInfo(fh=self._map_inode(fh.node_id))
@@ -139,9 +161,14 @@ class VaultFS(Operations):
         off: int,
         size: int,
     ) -> bytes:
+        real_id = self._unmap_inode(fh)
+        logger.debug("read: fh=%d -> real_id=%d, off=%d, size=%d", fh, real_id, off, size)
         try:
-            return await self._fm.read(FileHandle(node_id=self._unmap_inode(fh)), off, size)
+            result = await self._fm.read(FileHandle(node_id=real_id), off, size)
+            logger.debug("read: returned %d bytes", len(result))
+            return result
         except (KeyError, FileNotFoundError):
+            logger.debug("read: node %d not found", real_id)
             raise FUSEError(errno.ENOENT)
 
     async def write(
@@ -278,6 +305,8 @@ async def mount_vaultfs(
     fuse = VaultFS(file_manager)
     fuse_options = set(pyfuse3.default_options)
     fuse_options.add("fsname=vaultfs")
+    fuse_options.add("allow_other")
+    print("FUSE OPTIONS:", fuse_options)
     pyfuse3.init(fuse, str(mountpoint), fuse_options)
     try:
         if foreground:
