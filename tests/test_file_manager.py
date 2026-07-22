@@ -55,6 +55,12 @@ class InMemoryMetadataRepo:
             raise KeyError(f"Node {node_id} not found")
         return node
 
+    async def get_root_node(self) -> Node | None:
+        for node in self._nodes.values():
+            if node.parent_id is None and node.name == "/":
+                return node
+        return None
+
     async def list_children(self, parent_id: int) -> list[Node]:
         child_ids = self._children.get(parent_id, [])
         return [self._nodes[cid] for cid in child_ids if cid in self._nodes]
@@ -68,6 +74,12 @@ class InMemoryMetadataRepo:
                 cid for cid in self._children[node.parent_id] if cid != node_id
             ]
         self._chunks.pop(node_id, None)
+
+    async def update_node_size(self, node_id: int, size: int) -> None:
+        node = self._nodes.get(node_id)
+        if node is None:
+            raise KeyError(f"Node {node_id} not found")
+        node.size = size
 
     async def add_chunk(self, node_id: int, chunk_index: int, offset: int, chunk_id: str) -> None:
         if node_id not in self._chunks:
@@ -100,6 +112,31 @@ class InMemoryMetadataRepo:
 
     async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
         return PROVIDER_NAME
+
+    async def get_or_create_storage_provider(
+        self, name: str, type_: str, description: str = "", config: dict | None = None
+    ) -> object:
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeProviderModel:
+            id: str
+            name: str
+            type: str
+
+        return FakeProviderModel(id=name, name=name, type=type_)
+
+    async def save_chunk_with_external_id(
+        self,
+        chunk_id: str,
+        size: int,
+        sha256: bytes | None,
+        external_id: str,
+        storage_provider_id: str,
+        nonce: bytes | None = None,
+        auth_tag: bytes | None = None,
+    ) -> object:
+        pass  # No-op for tests
 
     _data: dict[str, bytes] = {}
 
@@ -377,4 +414,4 @@ class TestFileManager:
         node = await fm.create_file(fm.root_id, "test.txt")
         await acl.set_permission(node.id, "", PERM_WRITE)
         with pytest.raises(PermissionDeniedError):
-            await fm.open(node.id, PERM_READ)
+            await fm.open(node.id, 0)  # O_RDONLY → PERM_READ, but only PERM_WRITE granted

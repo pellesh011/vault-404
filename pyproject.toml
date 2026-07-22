@@ -10,7 +10,11 @@ dependencies = [
     "alembic>=1.18",
     "cryptography>=42.0",
     "pyfuse3>=3.5",
+    "python-dotenv>=1.0",
 ]
+
+[project.scripts]
+vaultfs = "vaultfs.main:main"
 
 [project.optional-dependencies]
 dev = [

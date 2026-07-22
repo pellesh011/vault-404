@@ -8,6 +8,9 @@ class StorageProviderRegistry:
     def add(self, provider: StorageProvider) -> None:
         self._providers[provider.name] = provider
 
+    def has(self, name: str) -> bool:
+        return name in self._providers
+
     def get(self, name: str) -> StorageProvider:
         if name not in self._providers:
             available = ", ".join(sorted(self._providers))

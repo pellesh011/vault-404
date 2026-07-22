@@ -24,6 +24,7 @@ class _FakeMetadata:
         self.add_chunk = AsyncMock(side_effect=self._add_chunk_impl)
         self.update_chunk = AsyncMock(side_effect=self._update_chunk_impl)
         self.get_node = AsyncMock(return_value=node)
+        self.get_root_node = AsyncMock(return_value=node)
         self.create_node = AsyncMock()
         self.list_children = AsyncMock(return_value=[])
         self.delete_node = AsyncMock()
@@ -56,6 +57,31 @@ class _FakeMetadata:
             if fc.id == file_chunk_id:
                 fc.chunk_id = new_chunk_id
                 break
+
+    async def get_or_create_storage_provider(
+        self, name: str, type_: str, description: str = "", config: dict | None = None
+    ) -> object:
+        from dataclasses import dataclass
+
+        @dataclass
+        class FakeProviderModel:
+            id: str
+            name: str
+            type: str
+
+        return FakeProviderModel(id=name, name=name, type=type_)
+
+    async def save_chunk_with_external_id(
+        self,
+        chunk_id: str,
+        size: int,
+        sha256: bytes | None,
+        external_id: str,
+        storage_provider_id: str,
+        nonce: bytes | None = None,
+        auth_tag: bytes | None = None,
+    ) -> object:
+        pass  # No-op for tests
 
 
 @pytest.fixture

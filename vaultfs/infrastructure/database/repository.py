@@ -87,9 +87,13 @@ class MetadataRepository(Protocol):
 
     async def get_node(self, node_id: int) -> Node: ...
 
+    async def get_root_node(self) -> Node | None: ...
+
     async def list_children(self, parent_id: int) -> list[Node]: ...
 
     async def delete_node(self, node_id: int) -> None: ...
+
+    async def update_node_size(self, node_id: int, size: int) -> None: ...
 
     async def add_chunk(
         self,
@@ -147,7 +151,7 @@ class SqlAlchemyMetadataRepository:
         type: str,
         chunk_size: int | None = None,
     ) -> Node:
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         model = NodeModel(
             parent_id=parent_id,
             name=name,
@@ -158,6 +162,7 @@ class SqlAlchemyMetadataRepository:
         )
         self._session.add(model)
         await self._session.flush()
+        await self._session.commit()
         return Node(
             id=model.id,
             parent_id=model.parent_id,
@@ -173,6 +178,27 @@ class SqlAlchemyMetadataRepository:
         model = await self._session.get(NodeModel, node_id)
         if model is None:
             raise KeyError(f"Node {node_id} not found")
+        return Node(
+            id=model.id,
+            parent_id=model.parent_id,
+            name=model.name,
+            type=model.type,
+            created_at=model.created_at,
+            modified_at=model.modified_at,
+            size=model.size,
+            chunk_size=model.chunk_size,
+        )
+
+    async def get_root_node(self) -> Node | None:
+        result = await self._session.execute(
+            select(NodeModel).where(
+                NodeModel.parent_id.is_(None),
+                NodeModel.name == "/",
+            )
+        )
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
         return Node(
             id=model.id,
             parent_id=model.parent_id,
@@ -209,6 +235,15 @@ class SqlAlchemyMetadataRepository:
             raise KeyError(f"Node {node_id} not found")
         await self._session.delete(model)
         await self._session.flush()
+        await self._session.commit()
+
+    async def update_node_size(self, node_id: int, size: int) -> None:
+        model = await self._session.get(NodeModel, node_id)
+        if model is None:
+            raise KeyError(f"Node {node_id} not found")
+        model.size = size
+        await self._session.flush()
+        await self._session.commit()
 
     async def add_chunk(
         self,
@@ -225,6 +260,7 @@ class SqlAlchemyMetadataRepository:
         )
         self._session.add(model)
         await self._session.flush()
+        await self._session.commit()
 
     async def get_chunks(self, node_id: int) -> list[FileChunk]:
         result = await self._session.execute(
@@ -250,6 +286,7 @@ class SqlAlchemyMetadataRepository:
             raise KeyError(f"FileChunk {file_chunk_id} not found")
         model.chunk_id = new_chunk_id
         await self._session.flush()
+        await self._session.commit()
 
     async def get_orphaned_chunks(self) -> list[Chunk]:
         result = await self._session.execute(
@@ -286,7 +323,7 @@ class SqlAlchemyMetadataRepository:
         if model is not None:
             return model
 
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         model = StorageProviderModel(
             id=name,
             name=name,
@@ -299,6 +336,7 @@ class SqlAlchemyMetadataRepository:
         )
         self._session.add(model)
         await self._session.flush()
+        await self._session.commit()
         return model
 
     async def save_chunk_with_external_id(
@@ -311,7 +349,7 @@ class SqlAlchemyMetadataRepository:
         nonce: bytes | None = None,
         auth_tag: bytes | None = None,
     ) -> Chunk:
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         model = ChunkModel(
             id=chunk_id,
             size=size,
@@ -324,6 +362,7 @@ class SqlAlchemyMetadataRepository:
         )
         self._session.add(model)
         await self._session.flush()
+        await self._session.commit()
         return Chunk(
             id=model.id,
             size=model.size,
@@ -345,6 +384,7 @@ class SqlAlchemyMetadataRepository:
             raise KeyError(f"Chunk {chunk_id} not found")
         model.external_id = external_id
         await self._session.flush()
+        await self._session.commit()
 
     async def get_chunk_by_external_id(
         self,
