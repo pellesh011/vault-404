@@ -2,7 +2,7 @@ import uuid
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vaultfs.infrastructure.database.models import (
@@ -342,7 +342,12 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
             .where(FileChunkModel.id.is_(None))
         )
         if not force:
-            stmt = stmt.where(ChunkModel.created_at < cutoff)
+            stmt = stmt.where(
+                or_(
+                    ChunkModel.deleted_at.isnot(None),
+                    ChunkModel.created_at < cutoff,
+                )
+            )
         result = await self._session.execute(stmt)
         models = result.scalars().all()
         return [
