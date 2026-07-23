@@ -161,6 +161,12 @@ class FileManager:
                 raise FileNotFoundError(f"Path not found: {path}")
         return current_id
 
+    async def flush(self, fh: FileHandle) -> None:
+        await self._chunk_manager.flush(fh.node_id)
+
+    async def release(self, fh: FileHandle) -> None:
+        await self._chunk_manager.flush(fh.node_id)
+
     async def rename(self, node_id: int, new_name: str, new_parent_id: int | None = None) -> None:
         node = await self._metadata.get_node(node_id)
         parent_id = new_parent_id if new_parent_id is not None else node.parent_id

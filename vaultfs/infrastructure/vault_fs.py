@@ -284,9 +284,13 @@ class VaultFS(Operations):
         stat.f_favail = 10**9
         return stat
 
-    async def flush(self, fh: int, ctx: RequestContext | None = None) -> None: ...
+    async def flush(self, fh: int, ctx: RequestContext | None = None) -> None:
+        real_id = self._unmap_inode(fh)
+        await self._fm.flush(FileHandle(node_id=real_id))
 
-    async def release(self, fh: int, ctx: RequestContext | None = None) -> None: ...
+    async def release(self, fh: int, ctx: RequestContext | None = None) -> None:
+        real_id = self._unmap_inode(fh)
+        await self._fm.release(FileHandle(node_id=real_id))
 
     async def setattr(
         self,

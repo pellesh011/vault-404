@@ -224,6 +224,7 @@ class TestChunkManager:
         chunks: list[FileChunk],
     ) -> None:
         await manager.write(node_id=1, offset=2, data=b"ZZZZ")
+        await manager.flush(node_id=1)
 
         metadata.update_chunk.assert_called_once()
         call_args = metadata.update_chunk.call_args
