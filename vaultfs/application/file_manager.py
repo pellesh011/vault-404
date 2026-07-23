@@ -38,7 +38,6 @@ class FileManager:
         return perms or PERM_READ
 
     async def initialize(self, chunk_size: int = 65536) -> None:
-        self._default_chunk_size = chunk_size
         root = await self._metadata.get_root_node()
         if root is None:
             root = await self._metadata.create_node(
@@ -96,7 +95,7 @@ class FileManager:
 
     async def create_file(self, parent_id: int, name: str) -> Node:
         await self._acl.check_permission(parent_id, PERM_WRITE)
-        chunk_size = self._chunk_policy.choose_chunk_size(type="file", name=name)
+        chunk_size = self._chunk_policy.choose_chunk_size(name=name)
         return await self._metadata.create_node(
             parent_id=parent_id,
             name=name,
