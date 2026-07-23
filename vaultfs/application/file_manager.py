@@ -188,20 +188,42 @@ class FileManager:
 
     async def rename(self, node_id: int, new_name: str, new_parent_id: int | None = None) -> None:
         node = await self._metadata.get_node(node_id)
-        parent_id = new_parent_id if new_parent_id is not None else node.parent_id
-        if parent_id is None:
+        target_parent_id = new_parent_id if new_parent_id is not None else node.parent_id
+        if target_parent_id is None:
             raise ValueError("Cannot rename root node")
 
+        assert node.parent_id is not None
+        await self._acl.check_permission(node.parent_id, PERM_WRITE)
+        if new_parent_id is not None and new_parent_id != node.parent_id:
+            await self._acl.check_permission(new_parent_id, PERM_WRITE)
+
         try:
-            existing = await self.lookup(parent_id, new_name)
+            existing = await self.lookup(target_parent_id, new_name)
             if existing.id != node_id:
-                await self._metadata.delete_node(existing.id)
+                if existing.type == "file":
+                    chunks_info = await self._chunk_manager.collect_node_chunks(existing.id)
+                    await self._metadata.delete_node(existing.id)
+                    if chunks_info:
+                        await self._chunk_manager.delete_chunks(chunks_info)
+                    orphaned = await self._metadata.get_orphaned_chunks(force=True)
+                    if orphaned:
+                        with_ex = [(c.id, c.external_id) for c in orphaned if c.external_id]
+                        if with_ex:
+                            await self._chunk_manager.delete_chunks(with_ex)
+                        for c in orphaned:
+                            if c.external_id is None:
+                                await self._metadata.hard_delete_chunk(c.id)
+                else:
+                    await self._metadata.delete_node(existing.id)
         except FileNotFoundError:
             pass
 
-        if new_parent_id is not None and new_parent_id != node.parent_id:
-            node.parent_id = new_parent_id
-        node.name = new_name
+        await self._metadata.update_node(
+            node_id,
+            name=new_name,
+            parent_id=new_parent_id,
+        )
+        await self._metadata.commit()
 
     async def truncate(self, node_id: int, size: int) -> None:
         node = await self._metadata.get_node(node_id)

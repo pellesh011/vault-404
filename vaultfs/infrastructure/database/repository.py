@@ -99,6 +99,14 @@ class MetadataRepository(ABC):
     async def delete_node(self, node_id: int) -> None: ...
 
     @abstractmethod
+    async def update_node(
+        self,
+        node_id: int,
+        name: str | None = None,
+        parent_id: int | None = None,
+    ) -> None: ...
+
+    @abstractmethod
     async def update_node_size(self, node_id: int, size: int) -> None: ...
 
     @abstractmethod
@@ -275,6 +283,21 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
         if model is None:
             raise KeyError(f"Node {node_id} not found")
         model.size = size
+        await self._session.flush()
+
+    async def update_node(
+        self,
+        node_id: int,
+        name: str | None = None,
+        parent_id: int | None = None,
+    ) -> None:
+        model = await self._session.get(NodeModel, node_id)
+        if model is None:
+            raise KeyError(f"Node {node_id} not found")
+        if name is not None:
+            model.name = name
+        if parent_id is not None:
+            model.parent_id = parent_id
         await self._session.flush()
 
     async def add_chunk(

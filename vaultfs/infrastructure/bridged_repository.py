@@ -78,6 +78,14 @@ class BridgedMetadataRepository(MetadataRepository):
     async def delete_node(self, node_id: int) -> None:
         return await self._bridge.run(self._repo.delete_node(node_id))
 
+    async def update_node(
+        self,
+        node_id: int,
+        name: str | None = None,
+        parent_id: int | None = None,
+    ) -> None:
+        return await self._bridge.run(self._repo.update_node(node_id, name, parent_id))
+
     async def update_node_size(self, node_id: int, size: int) -> None:
         return await self._bridge.run(self._repo.update_node_size(node_id, size))
 

@@ -82,6 +82,26 @@ class InMemoryMetadataRepo:
             raise KeyError(f"Node {node_id} not found")
         node.size = size
 
+    async def update_node(
+        self,
+        node_id: int,
+        name: str | None = None,
+        parent_id: int | None = None,
+    ) -> None:
+        node = self._nodes.get(node_id)
+        if node is None:
+            raise KeyError(f"Node {node_id} not found")
+        if name is not None:
+            node.name = name
+        if parent_id is not None:
+            old_parent = node.parent_id
+            node.parent_id = parent_id
+            if old_parent in self._children and node_id in self._children[old_parent]:
+                self._children[old_parent].remove(node_id)
+            if parent_id not in self._children:
+                self._children[parent_id] = []
+            self._children[parent_id].append(node_id)
+
     async def add_chunk(
         self, node_id: int, chunk_index: int, offset: int, chunk_id: uuid.UUID
     ) -> None:
@@ -360,6 +380,31 @@ class TestFileManager:
         await fm.rename(node.id, "new.txt")
         stat = await fm.stat(node.id)
         assert stat.name == "new.txt"
+
+    async def test_rename_overwrite(self, fm: FileManager) -> None:
+        src = await fm.create_file(fm.root_id, "src.txt")
+        dst = await fm.create_file(fm.root_id, "dst.txt")
+        await fm.rename(src.id, "dst.txt")
+        with pytest.raises(KeyError):
+            await fm.stat(dst.id)
+        renamed = await fm.lookup(fm.root_id, "dst.txt")
+        assert renamed.id == src.id
+        assert renamed.name == "dst.txt"
+
+    async def test_rename_move_to_subdir(self, fm: FileManager) -> None:
+        subdir = await fm.mkdir(fm.root_id, "subdir")
+        node = await fm.create_file(fm.root_id, "file.txt")
+        await fm.rename(node.id, "moved.txt", subdir.id)
+        with pytest.raises(FileNotFoundError):
+            await fm.lookup(fm.root_id, "file.txt")
+        moved = await fm.lookup(subdir.id, "moved.txt")
+        assert moved.id == node.id
+
+    async def test_rename_checks_acl(self, acl: InMemoryACL, fm: FileManager) -> None:
+        node = await fm.create_file(fm.root_id, "old.txt")
+        await acl.set_permission(fm.root_id, "", PERM_READ)
+        with pytest.raises(PermissionDeniedError):
+            await fm.rename(node.id, "new.txt")
 
     async def test_truncate(
         self,
