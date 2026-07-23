@@ -18,6 +18,7 @@ from vaultfs.domain.acl import InMemoryACL
 from vaultfs.domain.chunk_policy import DefaultChunkPolicy
 from vaultfs.infrastructure.asyncio_bridge import AsyncioBridge
 from vaultfs.infrastructure.bridged_repository import (
+    BridgedKeyManager,
     BridgedMetadataRepository,
     BridgedStorageProvider,
 )
@@ -148,8 +149,12 @@ def main() -> None:
 
         master_key_hex = os.getenv("ENCRYPTION_MASTER_KEY")
         master_key = bytes.fromhex(master_key_hex) if master_key_hex else None
-        key_manager = DatabaseKeyManager(session, master_key=master_key)
-        encryption = AESGCMEncryptionLayer(key_manager)
+        encryption = AESGCMEncryptionLayer(
+            BridgedKeyManager(
+                DatabaseKeyManager(session, master_key=master_key),
+                bridge,
+            ),
+        )
 
         chunk_manager = ChunkManager(
             registry=registry,

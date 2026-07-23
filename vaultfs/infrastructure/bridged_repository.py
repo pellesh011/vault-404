@@ -9,6 +9,8 @@ from vaultfs.infrastructure.database.repository import (
     SqlAlchemyMetadataRepository,
     StorageProviderModel,
 )
+from vaultfs.infrastructure.key_manager import DatabaseKeyManager
+from vaultfs.storage.encryption import KeyManager
 from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.provider import StorageProvider
 
@@ -148,3 +150,18 @@ class BridgedMetadataRepository(MetadataRepository):
 
     async def hard_delete_chunk(self, chunk_id: uuid.UUID) -> None:
         return await self._bridge.run(self._repo.hard_delete_chunk(chunk_id))
+
+
+class BridgedKeyManager(KeyManager):
+    def __init__(self, key_manager: DatabaseKeyManager, bridge: AsyncioBridge) -> None:
+        self._key_manager = key_manager
+        self._bridge = bridge
+
+    async def get_key(self, node_id: int) -> bytes:
+        return await self._bridge.run(self._key_manager.get_key(node_id))
+
+    async def create_key(self, node_id: int) -> bytes:
+        return await self._bridge.run(self._key_manager.create_key(node_id))
+
+    async def get_or_create_key(self, node_id: int) -> bytes:
+        return await self._bridge.run(self._key_manager.get_or_create_key(node_id))
