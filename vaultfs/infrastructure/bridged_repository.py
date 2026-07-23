@@ -143,5 +143,8 @@ class BridgedMetadataRepository(MetadataRepository):
     ) -> Chunk | None:
         return await self._bridge.run(self._repo.get_chunk_by_external_id(external_id))
 
+    async def get_chunk_by_id(self, chunk_id: uuid.UUID) -> Chunk | None:
+        return await self._bridge.run(self._repo.get_chunk_by_id(chunk_id))
+
     async def hard_delete_chunk(self, chunk_id: uuid.UUID) -> None:
         return await self._bridge.run(self._repo.hard_delete_chunk(chunk_id))

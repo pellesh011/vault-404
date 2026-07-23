@@ -22,6 +22,8 @@ from vaultfs.infrastructure.bridged_repository import (
     BridgedStorageProvider,
 )
 from vaultfs.infrastructure.database.repository import SqlAlchemyMetadataRepository
+from vaultfs.infrastructure.encryption import AESGCMEncryptionLayer
+from vaultfs.infrastructure.key_manager import DatabaseKeyManager
 from vaultfs.infrastructure.vault_fs import VaultFS
 from vaultfs.storage.memory_provider import MemoryStorageProvider
 from vaultfs.storage.provider import ProviderConfig
@@ -143,10 +145,17 @@ def main() -> None:
 
         cache = InMemoryCache()
         default_provider = "telegram" if registry.has("telegram") else "memory"
+
+        master_key_hex = os.getenv("ENCRYPTION_MASTER_KEY")
+        master_key = bytes.fromhex(master_key_hex) if master_key_hex else None
+        key_manager = DatabaseKeyManager(session, master_key=master_key)
+        encryption = AESGCMEncryptionLayer(key_manager)
+
         chunk_manager = ChunkManager(
             registry=registry,
             metadata=bridged_metadata,
             cache=cache,
+            encryption=encryption,
             default_provider=default_provider,
         )
         file_manager = FileManager(

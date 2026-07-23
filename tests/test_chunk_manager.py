@@ -37,6 +37,7 @@ class _FakeMetadata:  # type: ignore[no-untyped-def]
         self.list_children = AsyncMock(return_value=[])
         self.delete_node = AsyncMock()
         self.get_orphaned_chunks = AsyncMock(return_value=[])
+        self.get_chunk_by_id = AsyncMock(return_value=None)
 
     async def get_chunks(self, node_id: int) -> list[FileChunk]:
         return list(self._chunks.values())
