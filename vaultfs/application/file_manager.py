@@ -148,6 +148,14 @@ class FileManager:
         await self._metadata.delete_node(node_id)
         if chunks_info:
             await self._chunk_manager.delete_chunks(chunks_info)
+        orphaned = await self._metadata.get_orphaned_chunks(force=True)
+        if orphaned:
+            with_external = [(c.id, c.external_id) for c in orphaned if c.external_id is not None]
+            if with_external:
+                await self._chunk_manager.delete_chunks(with_external)
+            for c in orphaned:
+                if c.external_id is None:
+                    await self._metadata.hard_delete_chunk(c.id)
         await self._metadata.commit()
 
     async def list_directory(self, parent_id: int) -> list[Node]:
