@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 
 from vaultfs.application.chunk_manager import ChunkManager
 from vaultfs.domain.acl import PERM_READ, PERM_WRITE, ACLSystem
@@ -133,9 +134,12 @@ class FileManager:
             children = await self._metadata.list_children(node_id)
             if children:
                 raise OSError("Directory not empty")
+        chunks_info: list[tuple[uuid.UUID, str]] = []
         if node.type == "file":
-            await self._chunk_manager.delete_node_chunks(node_id)
+            chunks_info = await self._chunk_manager.collect_node_chunks(node_id)
         await self._metadata.delete_node(node_id)
+        if chunks_info:
+            await self._chunk_manager.delete_chunks(chunks_info)
 
     async def list_directory(self, parent_id: int) -> list[Node]:
         return await self._metadata.list_children(parent_id)
