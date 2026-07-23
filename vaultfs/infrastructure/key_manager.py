@@ -35,5 +35,4 @@ class DatabaseKeyManager(KeyManager):
         )
         self._session.add(model)
         await self._session.flush()
-        await self._session.commit()
         return key

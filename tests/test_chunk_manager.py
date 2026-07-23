@@ -101,6 +101,15 @@ class _FakeMetadata:  # type: ignore[no-untyped-def]
     ) -> object:
         pass
 
+    async def commit(self) -> None:
+        pass
+
+    async def flush(self) -> None:
+        pass
+
+    async def rollback(self) -> None:
+        pass
+
 
 @pytest.fixture
 def chunk_size() -> int:

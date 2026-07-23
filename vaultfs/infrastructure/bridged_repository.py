@@ -151,6 +151,15 @@ class BridgedMetadataRepository(MetadataRepository):
     async def hard_delete_chunk(self, chunk_id: uuid.UUID) -> None:
         return await self._bridge.run(self._repo.hard_delete_chunk(chunk_id))
 
+    async def commit(self) -> None:
+        return await self._bridge.run(self._repo.commit())
+
+    async def flush(self) -> None:
+        return await self._bridge.run(self._repo.flush())
+
+    async def rollback(self) -> None:
+        return await self._bridge.run(self._repo.rollback())
+
 
 class BridgedKeyManager(KeyManager):
     def __init__(self, key_manager: DatabaseKeyManager, bridge: AsyncioBridge) -> None:

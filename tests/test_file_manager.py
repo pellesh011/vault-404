@@ -141,6 +141,15 @@ class InMemoryMetadataRepo:
     ) -> object:
         pass  # No-op for tests
 
+    async def commit(self) -> None:
+        pass
+
+    async def flush(self) -> None:
+        pass
+
+    async def rollback(self) -> None:
+        pass
+
     _data: dict[uuid.UUID, bytes] = {}
 
 

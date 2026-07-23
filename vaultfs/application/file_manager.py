@@ -48,6 +48,7 @@ class FileManager:
                 chunk_size=chunk_size,
             )
         self._root_id = root.id
+        await self._metadata.commit()
 
     @property
     def root_id(self) -> int:
@@ -92,25 +93,30 @@ class FileManager:
         await self._chunk_manager.write(fh.node_id, offset, data)
         new_size = max(node.size, offset + len(data))
         await self._metadata.update_node_size(fh.node_id, new_size)
+        await self._metadata.commit()
         return len(data)
 
     async def create_file(self, parent_id: int, name: str) -> Node:
         await self._acl.check_permission(parent_id, PERM_WRITE)
         chunk_size = self._chunk_policy.choose_chunk_size(name=name)
-        return await self._metadata.create_node(
+        node = await self._metadata.create_node(
             parent_id=parent_id,
             name=name,
             type="file",
             chunk_size=chunk_size,
         )
+        await self._metadata.commit()
+        return node
 
     async def create_directory(self, parent_id: int, name: str) -> Node:
         await self._acl.check_permission(parent_id, PERM_WRITE)
-        return await self._metadata.create_node(
+        node = await self._metadata.create_node(
             parent_id=parent_id,
             name=name,
             type="directory",
         )
+        await self._metadata.commit()
+        return node
 
     async def mkdir(self, parent_id: int, name: str) -> Node:
         return await self.create_directory(parent_id, name)
@@ -119,6 +125,7 @@ class FileManager:
         await self._acl.check_permission(parent_id, PERM_WRITE)
         node = await self.lookup(parent_id, name)
         await self._metadata.delete_node(node.id)
+        await self._metadata.commit()
 
     async def rmdir(self, parent_id: int, name: str) -> None:
         await self._acl.check_permission(parent_id, PERM_WRITE)
@@ -127,6 +134,7 @@ class FileManager:
         if children:
             raise DirectoryNotEmptyError(node.id)
         await self._metadata.delete_node(node.id)
+        await self._metadata.commit()
 
     async def delete(self, node_id: int) -> None:
         node = await self._metadata.get_node(node_id)
@@ -140,6 +148,7 @@ class FileManager:
         await self._metadata.delete_node(node_id)
         if chunks_info:
             await self._chunk_manager.delete_chunks(chunks_info)
+        await self._metadata.commit()
 
     async def list_directory(self, parent_id: int) -> list[Node]:
         return await self._metadata.list_children(parent_id)
@@ -163,9 +172,11 @@ class FileManager:
 
     async def flush(self, fh: FileHandle) -> None:
         await self._chunk_manager.flush(fh.node_id)
+        await self._metadata.commit()
 
     async def release(self, fh: FileHandle) -> None:
         await self._chunk_manager.flush(fh.node_id)
+        await self._metadata.commit()
 
     async def rename(self, node_id: int, new_name: str, new_parent_id: int | None = None) -> None:
         node = await self._metadata.get_node(node_id)
@@ -197,3 +208,4 @@ class FileManager:
             )
             if existing:
                 await self._chunk_manager.write(new_node.id, 0, existing)
+        await self._metadata.commit()
