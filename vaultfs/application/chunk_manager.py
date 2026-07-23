@@ -27,6 +27,7 @@ class ChunkManager:
         self._cache = cache
         self._encryption = encryption
         self._default_provider = default_provider
+        self._dirty: dict[tuple[int, int], bytearray] = {}
 
     async def _resolve_provider(self, chunk_id: uuid.UUID) -> StorageProvider:
         logger.debug("_resolve_provider: chunk_id=%s", chunk_id)
@@ -43,7 +44,7 @@ class ChunkManager:
 
         chunks = await self._metadata.get_chunks(node_id)
         logger.debug("ChunkManager.read: got %d chunks", len(chunks))
-        if not chunks:
+        if not chunks and not self._dirty:
             raise ValueError(f"Node {node_id} has no chunks")
 
         result = bytearray()
@@ -54,13 +55,17 @@ class ChunkManager:
             chunk_index = current_offset // node.chunk_size
             chunk_offset = current_offset % node.chunk_size
 
-            file_chunk = self._find_chunk(chunks, chunk_index)
-            if file_chunk is None:
-                logger.debug("ChunkManager.read: chunk_index %d not found", chunk_index)
-                break
+            dirty_key = (node_id, chunk_index)
+            if dirty_key in self._dirty:
+                data = self._dirty[dirty_key]
+            else:
+                file_chunk = self._find_chunk(chunks, chunk_index)
+                if file_chunk is None:
+                    logger.debug("ChunkManager.read: chunk_index %d not found", chunk_index)
+                    break
+                logger.debug("ChunkManager.read: loading chunk %s", file_chunk.chunk_id)
+                data = await self._load_chunk(file_chunk.chunk_id, node_id)
 
-            logger.debug("ChunkManager.read: loading chunk %s", file_chunk.chunk_id)
-            data = await self._load_chunk(file_chunk.chunk_id, node_id)
             logger.debug("ChunkManager.read: loaded chunk, %d bytes", len(data))
             bytes_to_read = min(remaining, len(data) - chunk_offset)
             result.extend(data[chunk_offset : chunk_offset + bytes_to_read])
@@ -83,11 +88,15 @@ class ChunkManager:
             chunk_index = (offset + data_offset) // node.chunk_size
             chunk_offset = (offset + data_offset) % node.chunk_size
 
-            existing = chunks_by_index.get(chunk_index)
-            if existing is not None:
-                existing_data = await self._load_chunk(existing.chunk_id, node_id)
+            dirty_key = (node_id, chunk_index)
+            if dirty_key in self._dirty:
+                existing_data = bytes(self._dirty[dirty_key])
             else:
-                existing_data = b""
+                existing = chunks_by_index.get(chunk_index)
+                if existing is not None:
+                    existing_data = await self._load_chunk(existing.chunk_id, node_id)
+                else:
+                    existing_data = b""
 
             write_size = min(
                 len(data) - data_offset,
@@ -100,65 +109,77 @@ class ChunkManager:
                 + existing_data[chunk_offset + write_size :]
             )
 
-            if self._encryption is not None:
-                chunk_id = ChunkId(uuid.uuid4())
-                encrypted = await self._encryption.encrypt_chunk(node_id, str(chunk_id), merged)
-                nonce = encrypted[:12]
-                auth_tag = encrypted[-16:]
-                raw_to_store = encrypted
-            else:
-                chunk_id = ChunkId(uuid.uuid4())
-                nonce = None
-                auth_tag = None
-                raw_to_store = merged
+            self._dirty[dirty_key] = bytearray(merged)
 
-            provider = self._registry.get(self._default_provider)
-            external_id = await provider.create_chunk(raw_to_store)
-            await self._cache.set(chunk_id, merged)
-
-            chunk_sha256 = hashlib.sha256(merged).digest()
-            provider_model = await self._metadata.get_or_create_storage_provider(
-                name=provider.name,
-                type_=provider.provider_type,
-            )
-            await self._metadata.save_chunk_with_external_id(
-                chunk_id=chunk_id,
-                size=len(merged),
-                sha256=chunk_sha256,
-                external_id=external_id,
-                storage_provider_id=provider_model.id,
-                nonce=nonce,
-                auth_tag=auth_tag,
-            )
-
-            if existing is not None:
-                new_offset = (
-                    existing.offset if chunk_offset == 0 else existing.offset + chunk_offset
-                )
-                await self._cache.delete(ChunkId(existing.chunk_id))
-                await self._metadata.update_chunk(existing.id, chunk_id)
-            else:
-                new_offset = chunk_index * node.chunk_size
-                await self._metadata.add_chunk(
-                    node_id=node_id,
-                    chunk_index=chunk_index,
-                    offset=new_offset,
-                    chunk_id=chunk_id,
-                )
-
-            chunks_by_index[chunk_index] = FileChunk(
-                id=existing.id if existing else 0,
-                node_id=node_id,
-                chunk_index=chunk_index,
-                offset=new_offset,
-                chunk_id=chunk_id,
-            )
+            if len(merged) >= node.chunk_size:
+                await self._flush_single(node_id, chunk_index, node.chunk_size)
 
             data_offset += write_size
 
         new_size = max(node.size, offset + len(data))
         node.size = new_size
         node.modified_at = datetime.now(UTC)
+
+    async def _flush_single(self, node_id: int, chunk_index: int, chunk_size: int) -> None:
+        chunk_data = bytes(self._dirty[(node_id, chunk_index)])
+
+        if self._encryption is not None:
+            chunk_id = ChunkId(uuid.uuid4())
+            encrypted = await self._encryption.encrypt_chunk(node_id, str(chunk_id), chunk_data)
+            nonce = encrypted[:12]
+            auth_tag = encrypted[-16:]
+            raw_to_store = encrypted
+        else:
+            chunk_id = ChunkId(uuid.uuid4())
+            nonce = None
+            auth_tag = None
+            raw_to_store = chunk_data
+
+        provider = self._registry.get(self._default_provider)
+        external_id = await provider.create_chunk(raw_to_store)
+        await self._cache.set(chunk_id, chunk_data)
+
+        chunk_sha256 = hashlib.sha256(chunk_data).digest()
+        provider_model = await self._metadata.get_or_create_storage_provider(
+            name=provider.name,
+            type_=provider.provider_type,
+        )
+        await self._metadata.save_chunk_with_external_id(
+            chunk_id=chunk_id,
+            size=len(chunk_data),
+            sha256=chunk_sha256,
+            external_id=external_id,
+            storage_provider_id=provider_model.id,
+            nonce=nonce,
+            auth_tag=auth_tag,
+        )
+
+        chunks = await self._metadata.get_chunks(node_id)
+        existing = next((c for c in chunks if c.chunk_index == chunk_index), None)
+        if existing is not None:
+            await self._cache.delete(ChunkId(existing.chunk_id))
+            await self._metadata.update_chunk(existing.id, chunk_id)
+        else:
+            await self._metadata.add_chunk(
+                node_id=node_id,
+                chunk_index=chunk_index,
+                offset=chunk_index * chunk_size,
+                chunk_id=chunk_id,
+            )
+
+        del self._dirty[(node_id, chunk_index)]
+
+    async def flush(self, node_id: int) -> None:
+        dirty_keys = [k for k in self._dirty if k[0] == node_id]
+        if not dirty_keys:
+            return
+
+        node = await self._metadata.get_node(node_id)
+        if node.chunk_size is None:
+            raise ValueError(f"Node {node_id} has no chunk_size configured")
+
+        for nid, chunk_index in dirty_keys:
+            await self._flush_single(nid, chunk_index, node.chunk_size)
 
     async def prefetch(self, node_id: int, start_chunk: int, count: int) -> None:
         chunks = await self._metadata.get_chunks(node_id)
