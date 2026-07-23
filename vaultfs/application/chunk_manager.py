@@ -178,6 +178,25 @@ class ChunkManager:
                 return c
         return None
 
+    async def collect_node_chunks(self, node_id: int) -> list[tuple[uuid.UUID, str]]:
+        result: list[tuple[uuid.UUID, str]] = []
+        chunks = await self._metadata.get_chunks(node_id)
+        for fc in chunks:
+            chunk = await self._metadata.get_chunk_by_id(fc.chunk_id)
+            if chunk is not None and chunk.external_id:
+                result.append((fc.chunk_id, chunk.external_id))
+        return result
+
+    async def delete_chunks(self, chunks_info: list[tuple[uuid.UUID, str]]) -> None:
+        for chunk_id, external_id in chunks_info:
+            try:
+                provider = await self._resolve_provider(chunk_id)
+                await provider.delete_chunk(external_id)
+            except Exception:
+                logger.exception("Failed to delete chunk %s from provider", chunk_id)
+            await self._cache.delete(ChunkId(chunk_id))
+            await self._metadata.hard_delete_chunk(chunk_id)
+
     async def _load_chunk(self, chunk_id: uuid.UUID, node_id: int) -> bytes:
         logger.debug("_load_chunk: chunk_id=%s, node_id=%d", chunk_id, node_id)
         key = ChunkId(chunk_id)
