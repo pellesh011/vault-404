@@ -157,6 +157,9 @@ class MetadataRepository(ABC):
     ) -> Chunk | None: ...
 
     @abstractmethod
+    async def get_chunk_by_id(self, chunk_id: uuid.UUID) -> Chunk | None: ...
+
+    @abstractmethod
     async def get_message_id(self, chunk_id: ChunkId) -> int: ...
 
     @abstractmethod
@@ -441,6 +444,22 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
             select(ChunkModel).where(ChunkModel.external_id == external_id)
         )
         model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return Chunk(
+            id=model.id,
+            size=model.size,
+            sha256=model.sha256,
+            external_id=model.external_id,
+            storage_provider_id=model.storage_provider_id,
+            created_at=model.created_at,
+            deleted_at=model.deleted_at,
+            nonce=model.nonce,
+            auth_tag=model.auth_tag,
+        )
+
+    async def get_chunk_by_id(self, chunk_id: uuid.UUID) -> Chunk | None:
+        model = await self._session.get(ChunkModel, chunk_id)
         if model is None:
             return None
         return Chunk(

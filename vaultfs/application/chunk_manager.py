@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from vaultfs.application.cache import CacheLayer
 from vaultfs.infrastructure.database.repository import FileChunk, MetadataRepository
+from vaultfs.storage.encryption import EncryptionLayer
 from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.provider import StorageProvider
 from vaultfs.storage.provider_factory import StorageProviderRegistry
@@ -18,11 +19,13 @@ class ChunkManager:
         registry: StorageProviderRegistry,
         metadata: MetadataRepository,
         cache: CacheLayer,
+        encryption: EncryptionLayer | None = None,
         default_provider: str = "telegram",
     ) -> None:
         self._registry = registry
         self._metadata = metadata
         self._cache = cache
+        self._encryption = encryption
         self._default_provider = default_provider
 
     async def _resolve_provider(self, chunk_id: uuid.UUID) -> StorageProvider:
@@ -57,7 +60,7 @@ class ChunkManager:
                 break
 
             logger.debug("ChunkManager.read: loading chunk %s", file_chunk.chunk_id)
-            data = await self._load_chunk(file_chunk.chunk_id)
+            data = await self._load_chunk(file_chunk.chunk_id, node_id)
             logger.debug("ChunkManager.read: loaded chunk, %d bytes", len(data))
             bytes_to_read = min(remaining, len(data) - chunk_offset)
             result.extend(data[chunk_offset : chunk_offset + bytes_to_read])
@@ -82,7 +85,7 @@ class ChunkManager:
 
             existing = chunks_by_index.get(chunk_index)
             if existing is not None:
-                existing_data = await self._load_chunk(existing.chunk_id)
+                existing_data = await self._load_chunk(existing.chunk_id, node_id)
             else:
                 existing_data = b""
 
@@ -97,9 +100,20 @@ class ChunkManager:
                 + existing_data[chunk_offset + write_size :]
             )
 
+            if self._encryption is not None:
+                chunk_id = ChunkId(uuid.uuid4())
+                encrypted = await self._encryption.encrypt_chunk(node_id, str(chunk_id), merged)
+                nonce = encrypted[:12]
+                auth_tag = encrypted[-16:]
+                raw_to_store = encrypted
+            else:
+                chunk_id = ChunkId(uuid.uuid4())
+                nonce = None
+                auth_tag = None
+                raw_to_store = merged
+
             provider = self._registry.get(self._default_provider)
-            chunk_id = ChunkId(uuid.uuid4())
-            external_id = await provider.create_chunk(merged)
+            external_id = await provider.create_chunk(raw_to_store)
             await self._cache.set(chunk_id, merged)
 
             chunk_sha256 = hashlib.sha256(merged).digest()
@@ -113,6 +127,8 @@ class ChunkManager:
                 sha256=chunk_sha256,
                 external_id=external_id,
                 storage_provider_id=provider_model.id,
+                nonce=nonce,
+                auth_tag=auth_tag,
             )
 
             if existing is not None:
@@ -150,13 +166,11 @@ class ChunkManager:
 
         for fc in chunks:
             if fc.chunk_index in target_indices:
-                chunk_id = ChunkId(fc.chunk_id)
-                cached = await self._cache.get(chunk_id)
+                key = ChunkId(fc.chunk_id)
+                cached = await self._cache.get(key)
                 if cached is None:
-                    provider = await self._resolve_provider(fc.chunk_id)
-                    message_id = await self._metadata.get_message_id(chunk_id)
-                    data = await provider.get_chunk(str(message_id))
-                    await self._cache.set(chunk_id, data)
+                    data = await self._load_chunk(fc.chunk_id, node_id)
+                    await self._cache.set(key, data)
 
     def _find_chunk(self, chunks: list[FileChunk], index: int) -> FileChunk | None:
         for c in chunks:
@@ -164,8 +178,8 @@ class ChunkManager:
                 return c
         return None
 
-    async def _load_chunk(self, chunk_id: uuid.UUID) -> bytes:
-        logger.debug("_load_chunk: chunk_id=%s", chunk_id)
+    async def _load_chunk(self, chunk_id: uuid.UUID, node_id: int) -> bytes:
+        logger.debug("_load_chunk: chunk_id=%s, node_id=%d", chunk_id, node_id)
         key = ChunkId(chunk_id)
         cached = await self._cache.get(key)
         if cached is not None:
@@ -175,10 +189,16 @@ class ChunkManager:
         provider = await self._resolve_provider(chunk_id)
         try:
             message_id = await self._metadata.get_message_id(ChunkId(chunk_id))
-            data = await provider.get_chunk(str(message_id))
-            logger.debug("_load_chunk: got %d bytes from provider", len(data))
-            await self._cache.set(key, data)
-            return data
+            raw = await provider.get_chunk(str(message_id))
+
+            if self._encryption is not None:
+                chunk_info = await self._metadata.get_chunk_by_id(chunk_id)
+                if chunk_info is not None and chunk_info.nonce is not None:
+                    raw = await self._encryption.decrypt_chunk(node_id, str(chunk_id), raw)
+
+            logger.debug("_load_chunk: got %d bytes from provider", len(raw))
+            await self._cache.set(key, raw)
+            return raw
         except Exception as e:
             logger.exception("_load_chunk: failed to get chunk from provider: %s", e)
             raise

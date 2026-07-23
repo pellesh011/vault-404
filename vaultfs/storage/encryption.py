@@ -12,13 +12,19 @@ class KeyManager(ABC):
     @abstractmethod
     async def create_key(self, node_id: int) -> bytes: ...
 
+    async def get_or_create_key(self, node_id: int) -> bytes:
+        try:
+            return await self.get_key(node_id)
+        except KeyError:
+            return await self.create_key(node_id)
+
 
 class EncryptionLayer(ABC):
     @abstractmethod
-    async def encrypt_chunk(self, chunk_id: str, data: bytes) -> bytes: ...
+    async def encrypt_chunk(self, node_id: int, chunk_id: str, data: bytes) -> bytes: ...
 
     @abstractmethod
-    async def decrypt_chunk(self, chunk_id: str, data: bytes) -> bytes: ...
+    async def decrypt_chunk(self, node_id: int, chunk_id: str, data: bytes) -> bytes: ...
 
 
 class InMemoryKeyManager(KeyManager):
