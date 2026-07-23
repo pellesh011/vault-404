@@ -106,7 +106,7 @@ class InMemoryMetadataRepo:
                     fc.chunk_id = new_chunk_id
                     return
 
-    async def get_orphaned_chunks(self) -> list:
+    async def get_orphaned_chunks(self, force: bool = False) -> list:
         used: set[uuid.UUID] = set()
         for chunks in self._chunks.values():
             for fc in chunks:

@@ -1,6 +1,6 @@
 import uuid
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,7 +120,7 @@ class MetadataRepository(ABC):
     async def get_provider_name_for_chunk(self, chunk_id: uuid.UUID) -> str: ...
 
     @abstractmethod
-    async def get_orphaned_chunks(self) -> list[Chunk]: ...
+    async def get_orphaned_chunks(self, force: bool = False) -> list[Chunk]: ...
 
     @abstractmethod
     async def get_or_create_storage_provider(
@@ -158,6 +158,9 @@ class MetadataRepository(ABC):
 
     @abstractmethod
     async def get_message_id(self, chunk_id: ChunkId) -> int: ...
+
+    @abstractmethod
+    async def hard_delete_chunk(self, chunk_id: uuid.UUID) -> None: ...
 
 
 class SqlAlchemyMetadataRepository(MetadataRepository):
@@ -304,7 +307,12 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
         model = await self._session.get(FileChunkModel, file_chunk_id)
         if model is None:
             raise KeyError(f"FileChunk {file_chunk_id} not found")
+        old_chunk_id = model.chunk_id
         model.chunk_id = new_chunk_id
+        if old_chunk_id != new_chunk_id:
+            old_chunk = await self._session.get(ChunkModel, old_chunk_id)
+            if old_chunk is not None and old_chunk.deleted_at is None:
+                old_chunk.deleted_at = datetime.now(UTC).replace(tzinfo=None)
         await self._session.flush()
         await self._session.commit()
 
@@ -323,10 +331,16 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
             return "memory"
         return provider_model.name
 
-    async def get_orphaned_chunks(self) -> list[Chunk]:
-        result = await self._session.execute(
-            select(ChunkModel).where(ChunkModel.deleted_at.isnot(None))
+    async def get_orphaned_chunks(self, force: bool = False) -> list[Chunk]:
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
+        stmt = (
+            select(ChunkModel)
+            .outerjoin(FileChunkModel, ChunkModel.id == FileChunkModel.chunk_id)
+            .where(FileChunkModel.id.is_(None))
         )
+        if not force:
+            stmt = stmt.where(ChunkModel.created_at < cutoff)
+        result = await self._session.execute(stmt)
         models = result.scalars().all()
         return [
             Chunk(
@@ -451,3 +465,11 @@ class SqlAlchemyMetadataRepository(MetadataRepository):
         if not model.external_id:
             raise KeyError(f"Chunk {chunk_id} has no message_id")
         return int(model.external_id)
+
+    async def hard_delete_chunk(self, chunk_id: uuid.UUID) -> None:
+        model = await self._session.get(ChunkModel, chunk_id)
+        if model is None:
+            return
+        await self._session.delete(model)
+        await self._session.flush()
+        await self._session.commit()

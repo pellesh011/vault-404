@@ -100,8 +100,8 @@ class BridgedMetadataRepository(MetadataRepository):
     async def get_provider_name_for_chunk(self, chunk_id: uuid.UUID) -> str:
         return await self._bridge.run(self._repo.get_provider_name_for_chunk(chunk_id))
 
-    async def get_orphaned_chunks(self) -> list[Chunk]:
-        return await self._bridge.run(self._repo.get_orphaned_chunks())
+    async def get_orphaned_chunks(self, force: bool = False) -> list[Chunk]:
+        return await self._bridge.run(self._repo.get_orphaned_chunks(force))
 
     async def get_or_create_storage_provider(
         self,
@@ -142,3 +142,6 @@ class BridgedMetadataRepository(MetadataRepository):
         external_id: str,
     ) -> Chunk | None:
         return await self._bridge.run(self._repo.get_chunk_by_external_id(external_id))
+
+    async def hard_delete_chunk(self, chunk_id: uuid.UUID) -> None:
+        return await self._bridge.run(self._repo.hard_delete_chunk(chunk_id))

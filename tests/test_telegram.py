@@ -13,6 +13,7 @@ def mock_client() -> MagicMock:
     client.upload_file = AsyncMock()
     client.send_file = AsyncMock()
     client.get_messages = AsyncMock()
+    client.delete_messages = AsyncMock()
     return client
 
 

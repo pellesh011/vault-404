@@ -119,6 +119,7 @@ class ChunkManager:
                 new_offset = (
                     existing.offset if chunk_offset == 0 else existing.offset + chunk_offset
                 )
+                await self._cache.delete(ChunkId(existing.chunk_id))
                 await self._metadata.update_chunk(existing.id, chunk_id)
             else:
                 new_offset = chunk_index * node.chunk_size

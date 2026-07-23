@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import insert
@@ -171,16 +171,15 @@ class TestSqlAlchemyMetadataRepository:
         with pytest.raises(KeyError):
             await repo.update_chunk(99999, uuid.UUID(int=1))
 
-    async def test_get_orphaned_chunks_returns_deleted(
+    async def test_get_orphaned_chunks_finds_unreferenced(
         self, repo: SqlAlchemyMetadataRepository, session: AsyncSession
     ) -> None:
-        now = datetime.now(UTC).replace(tzinfo=None)
+        old = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
         stmt = insert(ChunkModel).values(
             id=CHUNK_1,
             size=100,
             sha256=b"abc",
-            created_at=now,
-            deleted_at=now,
+            created_at=old,
         )
         await session.execute(stmt)
         await session.commit()
@@ -190,35 +189,39 @@ class TestSqlAlchemyMetadataRepository:
         assert orphaned[0].id == CHUNK_1
         assert orphaned[0].size == 100
 
-    async def test_get_orphaned_chunks_excludes_active(
+    async def test_get_orphaned_chunks_excludes_referenced(
         self, repo: SqlAlchemyMetadataRepository, session: AsyncSession
     ) -> None:
-        now = datetime.now(UTC).replace(tzinfo=None)
-        stmt = insert(ChunkModel)
-        await session.execute(
-            stmt.values(
-                id=CHUNK_2,
-                size=100,
-                sha256=b"abc",
-                created_at=now,
-                deleted_at=now,
-            )
+        old = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=2)
+        stmt = insert(ChunkModel).values(
+            id=CHUNK_2,
+            size=100,
+            sha256=b"abc",
+            created_at=old,
         )
-        await session.execute(
-            stmt.values(
-                id=CHUNK_3,
-                size=200,
-                sha256=b"def",
-                created_at=now,
-                deleted_at=None,
-            )
-        )
+        await session.execute(stmt)
+        node = await repo.create_node(parent_id=None, name="f.txt", type="file")
+        await repo.add_chunk(node_id=node.id, chunk_index=0, offset=0, chunk_id=CHUNK_2)
         await session.commit()
 
         orphaned = await repo.get_orphaned_chunks()
-        orphaned_ids = {c.id for c in orphaned}
-        assert CHUNK_2 in orphaned_ids
-        assert CHUNK_3 not in orphaned_ids
+        assert len(orphaned) == 0
+
+    async def test_get_orphaned_chunks_excludes_recently_created(
+        self, repo: SqlAlchemyMetadataRepository, session: AsyncSession
+    ) -> None:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        stmt = insert(ChunkModel).values(
+            id=CHUNK_3,
+            size=200,
+            sha256=b"def",
+            created_at=now,
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+        orphaned = await repo.get_orphaned_chunks()
+        assert len(orphaned) == 0
 
     async def test_get_or_create_storage_provider_creates(
         self, repo: SqlAlchemyMetadataRepository

@@ -11,6 +11,9 @@ class CacheLayer(ABC):
     async def set(self, key: ChunkId, value: bytes) -> None: ...
 
     @abstractmethod
+    async def delete(self, key: ChunkId) -> None: ...
+
+    @abstractmethod
     async def clear(self) -> None: ...
 
 
@@ -23,6 +26,9 @@ class InMemoryCache(CacheLayer):
 
     async def set(self, key: ChunkId, value: bytes) -> None:
         self._data[key] = value
+
+    async def delete(self, key: ChunkId) -> None:
+        self._data.pop(key, None)
 
     async def clear(self) -> None:
         self._data.clear()

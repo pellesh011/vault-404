@@ -47,6 +47,7 @@ class TelegramStorageProvider(StorageProvider):
     async def create_chunk(self, data: bytes) -> str:
         self._ensure_initialized()
         async with self._semaphore:
+            print(str(data))
             uploaded = await self._client.upload_file(data, file_name=f"chunk_{id(data)}")
             message = await self._client.send_file(self._channel, uploaded)
             message = cast(Message, message)
@@ -67,6 +68,8 @@ class TelegramStorageProvider(StorageProvider):
 
     async def delete_chunk(self, external_id: str) -> None:
         self._ensure_initialized()
+        async with self._semaphore:
+            await self._client.delete_messages(self._channel, [int(external_id)])
 
     async def is_healthy(self) -> bool:
         if self._client is None:
