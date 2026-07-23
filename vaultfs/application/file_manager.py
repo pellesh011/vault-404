@@ -133,6 +133,8 @@ class FileManager:
             children = await self._metadata.list_children(node_id)
             if children:
                 raise OSError("Directory not empty")
+        if node.type == "file":
+            await self._chunk_manager.delete_node_chunks(node_id)
         await self._metadata.delete_node(node_id)
 
     async def list_directory(self, parent_id: int) -> list[Node]:
