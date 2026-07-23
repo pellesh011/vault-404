@@ -136,7 +136,15 @@ class ChunkManager:
                     existing.offset if chunk_offset == 0 else existing.offset + chunk_offset
                 )
                 await self._cache.delete(ChunkId(existing.chunk_id))
+                old_chunk = await self._metadata.get_chunk_by_id(existing.chunk_id)
                 await self._metadata.update_chunk(existing.id, chunk_id)
+                if old_chunk is not None and old_chunk.external_id:
+                    try:
+                        provider = await self._resolve_provider(existing.chunk_id)
+                        await provider.delete_chunk(old_chunk.external_id)
+                    except Exception:
+                        logger.exception("Failed to delete replaced chunk %s", existing.chunk_id)
+                    await self._metadata.hard_delete_chunk(existing.chunk_id)
             else:
                 new_offset = chunk_index * node.chunk_size
                 await self._metadata.add_chunk(
