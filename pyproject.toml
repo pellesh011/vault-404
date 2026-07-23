@@ -5,6 +5,7 @@ description = "Virtual filesystem over Telegram object storage"
 requires-python = ">=3.12"
 dependencies = [
     "telethon>=1.44",
+    "python-socks[asyncio]>=2.7",
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.31",
     "alembic>=1.18",

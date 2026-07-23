@@ -1,12 +1,15 @@
+import uuid
+
 from vaultfs.infrastructure.asyncio_bridge import AsyncioBridge
 from vaultfs.infrastructure.database.repository import (
     Chunk,
     FileChunk,
+    MetadataRepository,
     Node,
     SqlAlchemyMetadataRepository,
     StorageProviderModel,
 )
-from vaultfs.storage.interface import ChunkId, ChunkInfo
+from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.provider import StorageProvider
 
 
@@ -24,17 +27,14 @@ class BridgedStorageProvider(StorageProvider):
     async def init(self, **kwargs):  # type: ignore[override]
         await self._bridge.run(self._provider.init(**kwargs))
 
-    async def create_chunk(self, data: bytes) -> ChunkId:
+    async def create_chunk(self, data: bytes) -> str:
         return await self._bridge.run(self._provider.create_chunk(data))
 
-    async def get_chunk(self, chunk_id: ChunkId) -> bytes:
-        return await self._bridge.run(self._provider.get_chunk(chunk_id))
+    async def get_chunk(self, external_id: str) -> bytes:
+        return await self._bridge.run(self._provider.get_chunk(external_id))
 
-    async def delete_chunk(self, chunk_id: ChunkId) -> None:
-        await self._bridge.run(self._provider.delete_chunk(chunk_id))
-
-    async def stat(self, chunk_id: ChunkId) -> ChunkInfo:
-        return await self._bridge.run(self._provider.stat(chunk_id))
+    async def delete_chunk(self, external_id: str) -> None:
+        await self._bridge.run(self._provider.delete_chunk(external_id))
 
     async def is_healthy(self) -> bool:
         return await self._bridge.run(self._provider.is_healthy())
@@ -46,7 +46,7 @@ class BridgedStorageProvider(StorageProvider):
             pass  # Provider may not be connected
 
 
-class BridgedMetadataRepository:
+class BridgedMetadataRepository(MetadataRepository):
     def __init__(
         self,
         repo: SqlAlchemyMetadataRepository,
@@ -79,26 +79,29 @@ class BridgedMetadataRepository:
     async def update_node_size(self, node_id: int, size: int) -> None:
         return await self._bridge.run(self._repo.update_node_size(node_id, size))
 
+    async def get_message_id(self, chunk_id: ChunkId) -> int:
+        return await self._bridge.run(self._repo.get_message_id(chunk_id))
+
     async def add_chunk(
         self,
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
     ) -> None:
         return await self._bridge.run(self._repo.add_chunk(node_id, chunk_index, offset, chunk_id))
 
     async def get_chunks(self, node_id: int) -> list[FileChunk]:
         return await self._bridge.run(self._repo.get_chunks(node_id))
 
-    async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None:
+    async def update_chunk(self, file_chunk_id: int, new_chunk_id: uuid.UUID) -> None:
         return await self._bridge.run(self._repo.update_chunk(file_chunk_id, new_chunk_id))
 
-    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+    async def get_provider_name_for_chunk(self, chunk_id: uuid.UUID) -> str:
         return await self._bridge.run(self._repo.get_provider_name_for_chunk(chunk_id))
 
-    async def get_orphaned_chunks(self) -> list[Chunk]:
-        return await self._bridge.run(self._repo.get_orphaned_chunks())
+    async def get_orphaned_chunks(self, force: bool = False) -> list[Chunk]:
+        return await self._bridge.run(self._repo.get_orphaned_chunks(force))
 
     async def get_or_create_storage_provider(
         self,
@@ -113,11 +116,11 @@ class BridgedMetadataRepository:
 
     async def save_chunk_with_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         size: int,
         sha256: bytes | None,
         external_id: str,
-        storage_provider_id: str,
+        storage_provider_id: int,
         nonce: bytes | None = None,
         auth_tag: bytes | None = None,
     ) -> Chunk:
@@ -129,7 +132,7 @@ class BridgedMetadataRepository:
 
     async def update_chunk_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         external_id: str,
     ) -> None:
         return await self._bridge.run(self._repo.update_chunk_external_id(chunk_id, external_id))
@@ -139,3 +142,6 @@ class BridgedMetadataRepository:
         external_id: str,
     ) -> Chunk | None:
         return await self._bridge.run(self._repo.get_chunk_by_external_id(external_id))
+
+    async def hard_delete_chunk(self, chunk_id: uuid.UUID) -> None:
+        return await self._bridge.run(self._repo.hard_delete_chunk(chunk_id))

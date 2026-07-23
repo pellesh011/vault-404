@@ -256,13 +256,16 @@ class VaultFS(Operations):
         ctx: RequestContext | None = None,
     ) -> None:
         name_old_str = name_old.decode("utf-8")
+        name_new_str = name_new.decode("utf-8")
+        real_parent_old = self._unmap_inode(parent_inode_old)
+        real_parent_new = self._unmap_inode(parent_inode_new)
         try:
-            children = await self._fm.list_directory(self._unmap_inode(parent_inode_old))
+            children = await self._fm.list_directory(real_parent_old)
         except KeyError:
             raise FUSEError(errno.ENOENT)
         for child in children:
             if child.name == name_old_str:
-                await self._fm.rename(child.id, name_new.decode("utf-8"))
+                await self._fm.rename(child.id, name_new_str, real_parent_new)
                 return
         raise FUSEError(errno.ENOENT)
 
@@ -293,6 +296,13 @@ class VaultFS(Operations):
         fh: int | None = None,
         ctx: RequestContext | None = None,
     ) -> pyfuse3.EntryAttributes:
+        real_id = self._unmap_inode(inode)
+        if fields.update_size:
+            try:
+                await self._fm.truncate(real_id, attr.st_size)
+            except Exception:
+                logger.exception("setattr: truncate failed")
+                raise FUSEError(errno.EIO)
         return await self.getattr(inode)
 
 

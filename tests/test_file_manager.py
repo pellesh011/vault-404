@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -81,7 +82,9 @@ class InMemoryMetadataRepo:
             raise KeyError(f"Node {node_id} not found")
         node.size = size
 
-    async def add_chunk(self, node_id: int, chunk_index: int, offset: int, chunk_id: str) -> None:
+    async def add_chunk(
+        self, node_id: int, chunk_index: int, offset: int, chunk_id: uuid.UUID
+    ) -> None:
         if node_id not in self._chunks:
             self._chunks[node_id] = []
         fc = FileChunk(
@@ -96,21 +99,21 @@ class InMemoryMetadataRepo:
     async def get_chunks(self, node_id: int) -> list[FileChunk]:
         return self._chunks.get(node_id, [])
 
-    async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None:
+    async def update_chunk(self, file_chunk_id: int, new_chunk_id: uuid.UUID) -> None:
         for chunks in self._chunks.values():
             for fc in chunks:
                 if fc.id == file_chunk_id:
                     fc.chunk_id = new_chunk_id
                     return
 
-    async def get_orphaned_chunks(self) -> list:
-        used: set[str] = set()
+    async def get_orphaned_chunks(self, force: bool = False) -> list:
+        used: set[uuid.UUID] = set()
         for chunks in self._chunks.values():
             for fc in chunks:
                 used.add(fc.chunk_id)
         return [cid for cid in self._data if cid not in used]
 
-    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+    async def get_provider_name_for_chunk(self, chunk_id: uuid.UUID) -> str:
         return PROVIDER_NAME
 
     async def get_or_create_storage_provider(
@@ -128,7 +131,7 @@ class InMemoryMetadataRepo:
 
     async def save_chunk_with_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         size: int,
         sha256: bytes | None,
         external_id: str,
@@ -138,12 +141,12 @@ class InMemoryMetadataRepo:
     ) -> object:
         pass  # No-op for tests
 
-    _data: dict[str, bytes] = {}
+    _data: dict[uuid.UUID, bytes] = {}
 
 
 class InMemoryCache:
     def __init__(self) -> None:
-        self._data: dict[str, bytes] = {}
+        self._data: dict[ChunkId, bytes] = {}
 
     async def get(self, key: ChunkId) -> bytes | None:
         return self._data.get(key)

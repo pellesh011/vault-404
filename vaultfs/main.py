@@ -53,6 +53,31 @@ async def _setup_database(
     return repo, session, engine
 
 
+def _build_telegram_proxy() -> dict[str, str | int | bool] | None:
+    proxy_type = os.getenv("TELEGRAM_PROXY_TYPE", "").strip()
+    if not proxy_type:
+        return None
+    addr = os.getenv("TELEGRAM_PROXY_ADDR", "").strip()
+    port = os.getenv("TELEGRAM_PROXY_PORT", "").strip()
+    if not addr or not port:
+        logger.warning(
+            "TELEGRAM_PROXY_TYPE is set but TELEGRAM_PROXY_ADDR or TELEGRAM_PROXY_PORT is missing"
+        )
+        return None
+    proxy: dict[str, str | int | bool] = {
+        "proxy_type": proxy_type,
+        "addr": addr,
+        "port": int(port),
+    }
+    username = os.getenv("TELEGRAM_PROXY_USERNAME", "").strip()
+    password = os.getenv("TELEGRAM_PROXY_PASSWORD", "").strip()
+    if username:
+        proxy["username"] = username
+    if password:
+        proxy["password"] = password
+    return proxy
+
+
 async def _init_telegram(registry: StorageProviderRegistry, session: AsyncSession) -> None:
     telegram_api_id = os.getenv("TELEGRAM_API_ID")
     telegram_api_hash = os.getenv("TELEGRAM_API_HASH")
@@ -62,7 +87,6 @@ async def _init_telegram(registry: StorageProviderRegistry, session: AsyncSessio
         logger.warning("Telegram not configured, skipping telegram provider")
         return
 
-    telegram_metadata = SqlAlchemyMetadataRepository(session)
     telegram_config = ProviderConfig(name="telegram", type="telegram")
     telegram_provider = TelegramStorageProvider(config=telegram_config)
     channel_id_raw = os.getenv("TELEGRAM_CHANNEL_ID")
@@ -70,11 +94,11 @@ async def _init_telegram(registry: StorageProviderRegistry, session: AsyncSessio
         await telegram_provider.init(
             api_id=int(telegram_api_id),
             api_hash=telegram_api_hash,
-            metadata=telegram_metadata,
             phone=telegram_phone,
             channel_id=int(channel_id_raw) if channel_id_raw else None,
             session_name=_env_str("TELEGRAM_SESSION_NAME", "vault_session"),
             max_concurrent=_env_int("TELEGRAM_MAX_CONCURRENT", 10),
+            proxy=_build_telegram_proxy(),
         )
         registry.add(telegram_provider)
     except Exception:

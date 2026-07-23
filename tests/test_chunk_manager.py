@@ -1,4 +1,4 @@
-import hashlib
+import uuid
 from datetime import datetime
 from unittest.mock import AsyncMock
 
@@ -6,21 +6,29 @@ import pytest
 
 from vaultfs.application.cache import CacheLayer, InMemoryCache
 from vaultfs.application.chunk_manager import ChunkManager
-from vaultfs.infrastructure.database.repository import FileChunk, MetadataRepository, Node
-from vaultfs.storage.interface import ChunkId, ChunkInfo
+from vaultfs.infrastructure.database.repository import FileChunk, Node
+from vaultfs.infrastructure.database.repository import MetadataRepository as FileMetadataRepository
+from vaultfs.storage.interface import ChunkId
 from vaultfs.storage.memory_provider import MemoryStorageProvider
 from vaultfs.storage.provider import ProviderConfig
 from vaultfs.storage.provider_factory import StorageProviderRegistry
 
 PROVIDER_NAME = "memory"
 
+CHUNK_IDS = [
+    uuid.UUID(int=1),
+    uuid.UUID(int=2),
+    uuid.UUID(int=3),
+]
 
-class _FakeMetadata:
+
+class _FakeMetadata:  # type: ignore[no-untyped-def]
     def __init__(self, node: Node, chunks: list[FileChunk]) -> None:
         self.node = node
         self._chunks = {c.chunk_index: c for c in chunks}
         self._next_id = len(chunks) + 1
-        self._provider_map: dict[str, str] = {}
+        self._provider_map: dict[uuid.UUID, str] = {}
+        self._message_ids: dict[uuid.UUID, str] = {}
         self.add_chunk = AsyncMock(side_effect=self._add_chunk_impl)
         self.update_chunk = AsyncMock(side_effect=self._update_chunk_impl)
         self.get_node = AsyncMock(return_value=node)
@@ -33,14 +41,23 @@ class _FakeMetadata:
     async def get_chunks(self, node_id: int) -> list[FileChunk]:
         return list(self._chunks.values())
 
-    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+    async def get_provider_name_for_chunk(self, chunk_id: uuid.UUID) -> str:
         return self._provider_map.get(chunk_id, PROVIDER_NAME)
 
-    def set_provider(self, chunk_id: str, provider_name: str) -> None:
+    async def get_message_id(self, chunk_id: ChunkId) -> int:
+        val = self._message_ids.get(chunk_id)
+        if val is None:
+            return 0
+        return int(val)
+
+    def set_provider(self, chunk_id: uuid.UUID, provider_name: str) -> None:
         self._provider_map[chunk_id] = provider_name
 
+    def set_message_id(self, chunk_id: uuid.UUID, external_id: str) -> None:
+        self._message_ids[chunk_id] = external_id
+
     async def _add_chunk_impl(
-        self, node_id: int, chunk_index: int, offset: int, chunk_id: str
+        self, node_id: int, chunk_index: int, offset: int, chunk_id: uuid.UUID
     ) -> None:
         fc = FileChunk(
             id=self._next_id,
@@ -52,7 +69,7 @@ class _FakeMetadata:
         self._next_id += 1
         self._chunks[chunk_index] = fc
 
-    async def _update_chunk_impl(self, file_chunk_id: int, new_chunk_id: str) -> None:
+    async def _update_chunk_impl(self, file_chunk_id: int, new_chunk_id: uuid.UUID) -> None:
         for fc in self._chunks.values():
             if fc.id == file_chunk_id:
                 fc.chunk_id = new_chunk_id
@@ -73,7 +90,7 @@ class _FakeMetadata:
 
     async def save_chunk_with_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         size: int,
         sha256: bytes | None,
         external_id: str,
@@ -81,7 +98,7 @@ class _FakeMetadata:
         nonce: bytes | None = None,
         auth_tag: bytes | None = None,
     ) -> object:
-        pass  # No-op for tests
+        pass
 
 
 @pytest.fixture
@@ -106,9 +123,9 @@ def node(chunk_size: int) -> Node:
 @pytest.fixture
 def chunks() -> list[FileChunk]:
     return [
-        FileChunk(id=1, node_id=1, chunk_index=0, offset=0, chunk_id="chunk_0"),
-        FileChunk(id=2, node_id=1, chunk_index=1, offset=10, chunk_id="chunk_1"),
-        FileChunk(id=3, node_id=1, chunk_index=2, offset=20, chunk_id="chunk_2"),
+        FileChunk(id=1, node_id=1, chunk_index=0, offset=0, chunk_id=CHUNK_IDS[0]),
+        FileChunk(id=2, node_id=1, chunk_index=1, offset=10, chunk_id=CHUNK_IDS[1]),
+        FileChunk(id=3, node_id=1, chunk_index=2, offset=20, chunk_id=CHUNK_IDS[2]),
     ]
 
 
@@ -136,8 +153,9 @@ def metadata(
     provider: MemoryStorageProvider,
 ) -> _FakeMetadata:
     m = _FakeMetadata(node, chunks)
-    for c in chunks:
+    for i, c in enumerate(chunks):
         m.set_provider(c.chunk_id, PROVIDER_NAME)
+        m.set_message_id(c.chunk_id, str(i + 1))
     return m
 
 
@@ -155,20 +173,13 @@ def manager(
     chunks: list[FileChunk],
     provider: MemoryStorageProvider,
 ) -> ChunkManager:
-    chunk_data[chunks[0].chunk_id] = b"AAAABBBBBB"
-    chunk_data[chunks[1].chunk_id] = b"CCCCCDDDDD"
-    chunk_data[chunks[2].chunk_id] = b"EEEEEFFFFF"
+    chunk_data[str(CHUNK_IDS[0])] = b"AAAABBBBBB"
+    chunk_data[str(CHUNK_IDS[1])] = b"CCCCCDDDDD"
+    chunk_data[str(CHUNK_IDS[2])] = b"EEEEEFFFFF"
 
-    for c in chunks:
-        data = chunk_data[c.chunk_id]
-        cid = ChunkId(c.chunk_id)
-        provider._data[cid] = data
-        provider._info[cid] = ChunkInfo(
-            size=len(data),
-            sha256=hashlib.sha256(data).digest(),
-            created_at=datetime.now(),
-            storage_provider_id=PROVIDER_NAME,
-        )
+    for i, c in enumerate(chunks):
+        data = chunk_data[str(c.chunk_id)]
+        provider._data[str(i + 1)] = data
 
     mgr = ChunkManager(
         registry=registry, metadata=metadata, cache=cache, default_provider=PROVIDER_NAME
@@ -208,7 +219,7 @@ class TestChunkManager:
     async def test_write_updates_existing_chunk(
         self,
         manager: ChunkManager,
-        metadata: MetadataRepository,
+        metadata: FileMetadataRepository,
         chunks: list[FileChunk],
     ) -> None:
         await manager.write(node_id=1, offset=2, data=b"ZZZZ")

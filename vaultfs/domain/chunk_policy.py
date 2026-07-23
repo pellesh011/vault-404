@@ -1,5 +1,5 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Protocol
 
 
 @dataclass(frozen=True)
@@ -8,7 +8,8 @@ class ChunkSizeRule:
     size: int
 
 
-class ChunkPolicy(Protocol):
+class ChunkPolicy(ABC):
+    @abstractmethod
     def choose_chunk_size(
         self,
         type: str,
@@ -16,7 +17,7 @@ class ChunkPolicy(Protocol):
     ) -> int: ...
 
 
-class DefaultChunkPolicy:
+class DefaultChunkPolicy(ChunkPolicy):
     def __init__(self, default_size: int = 65536) -> None:
         self._default_size = default_size
         self._rules: list[ChunkSizeRule] = [

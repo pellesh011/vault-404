@@ -1,25 +1,27 @@
-from typing import Protocol, runtime_checkable
+from abc import ABC, abstractmethod
 
 NONCE_SIZE = 12
 AUTH_TAG_SIZE = 16
 KEY_SIZE = 32
 
 
-@runtime_checkable
-class KeyManager(Protocol):
+class KeyManager(ABC):
+    @abstractmethod
     async def get_key(self, node_id: int) -> bytes: ...
 
+    @abstractmethod
     async def create_key(self, node_id: int) -> bytes: ...
 
 
-@runtime_checkable
-class EncryptionLayer(Protocol):
+class EncryptionLayer(ABC):
+    @abstractmethod
     async def encrypt_chunk(self, chunk_id: str, data: bytes) -> bytes: ...
 
+    @abstractmethod
     async def decrypt_chunk(self, chunk_id: str, data: bytes) -> bytes: ...
 
 
-class InMemoryKeyManager:
+class InMemoryKeyManager(KeyManager):
     def __init__(self) -> None:
         self._keys: dict[int, bytes] = {}
 

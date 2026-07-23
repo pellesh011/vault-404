@@ -1,5 +1,6 @@
-from datetime import UTC, datetime
-from typing import Protocol
+import uuid
+from abc import ABC, abstractmethod
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +43,7 @@ class FileChunk:
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
     ) -> None:
         self.id = id
         self.node_id = node_id
@@ -54,7 +55,7 @@ class FileChunk:
 class Chunk:
     def __init__(
         self,
-        id: str,
+        id: uuid.UUID,
         size: int,
         sha256: bytes | None = None,
         external_id: str | None = None,
@@ -75,7 +76,8 @@ class Chunk:
         self.auth_tag = auth_tag
 
 
-class MetadataRepository(Protocol):
+class MetadataRepository(ABC):
+    @abstractmethod
     async def create_node(
         self,
         parent_id: int | None,
@@ -84,32 +86,43 @@ class MetadataRepository(Protocol):
         chunk_size: int | None = None,
     ) -> Node: ...
 
+    @abstractmethod
     async def get_node(self, node_id: int) -> Node: ...
 
+    @abstractmethod
     async def get_root_node(self) -> Node | None: ...
 
+    @abstractmethod
     async def list_children(self, parent_id: int) -> list[Node]: ...
 
+    @abstractmethod
     async def delete_node(self, node_id: int) -> None: ...
 
+    @abstractmethod
     async def update_node_size(self, node_id: int, size: int) -> None: ...
 
+    @abstractmethod
     async def add_chunk(
         self,
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
     ) -> None: ...
 
+    @abstractmethod
     async def get_chunks(self, node_id: int) -> list[FileChunk]: ...
 
-    async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None: ...
+    @abstractmethod
+    async def update_chunk(self, file_chunk_id: int, new_chunk_id: uuid.UUID) -> None: ...
 
-    async def get_provider_name_for_chunk(self, chunk_id: str) -> str: ...
+    @abstractmethod
+    async def get_provider_name_for_chunk(self, chunk_id: uuid.UUID) -> str: ...
 
-    async def get_orphaned_chunks(self) -> list[Chunk]: ...
+    @abstractmethod
+    async def get_orphaned_chunks(self, force: bool = False) -> list[Chunk]: ...
 
+    @abstractmethod
     async def get_or_create_storage_provider(
         self,
         name: str,
@@ -118,9 +131,10 @@ class MetadataRepository(Protocol):
         config: dict | None = None,
     ) -> StorageProviderModel: ...
 
+    @abstractmethod
     async def save_chunk_with_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         size: int,
         sha256: bytes | None,
         external_id: str,
@@ -129,21 +143,27 @@ class MetadataRepository(Protocol):
         auth_tag: bytes | None = None,
     ) -> Chunk: ...
 
+    @abstractmethod
     async def update_chunk_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         external_id: str,
     ) -> None: ...
 
+    @abstractmethod
     async def get_chunk_by_external_id(
         self,
         external_id: str,
     ) -> Chunk | None: ...
 
+    @abstractmethod
     async def get_message_id(self, chunk_id: ChunkId) -> int: ...
 
+    @abstractmethod
+    async def hard_delete_chunk(self, chunk_id: uuid.UUID) -> None: ...
 
-class SqlAlchemyMetadataRepository:
+
+class SqlAlchemyMetadataRepository(MetadataRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
@@ -253,7 +273,7 @@ class SqlAlchemyMetadataRepository:
         node_id: int,
         chunk_index: int,
         offset: int,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
     ) -> None:
         model = FileChunkModel(
             node_id=node_id,
@@ -283,15 +303,20 @@ class SqlAlchemyMetadataRepository:
             for m in models
         ]
 
-    async def update_chunk(self, file_chunk_id: int, new_chunk_id: str) -> None:
+    async def update_chunk(self, file_chunk_id: int, new_chunk_id: uuid.UUID) -> None:
         model = await self._session.get(FileChunkModel, file_chunk_id)
         if model is None:
             raise KeyError(f"FileChunk {file_chunk_id} not found")
+        old_chunk_id = model.chunk_id
         model.chunk_id = new_chunk_id
+        if old_chunk_id != new_chunk_id:
+            old_chunk = await self._session.get(ChunkModel, old_chunk_id)
+            if old_chunk is not None and old_chunk.deleted_at is None:
+                old_chunk.deleted_at = datetime.now(UTC).replace(tzinfo=None)
         await self._session.flush()
         await self._session.commit()
 
-    async def get_provider_name_for_chunk(self, chunk_id: str) -> str:
+    async def get_provider_name_for_chunk(self, chunk_id: uuid.UUID) -> str:
         result = await self._session.execute(select(ChunkModel).where(ChunkModel.id == chunk_id))
         chunk_model = result.scalar_one_or_none()
         if chunk_model is None or chunk_model.storage_provider_id is None:
@@ -306,10 +331,16 @@ class SqlAlchemyMetadataRepository:
             return "memory"
         return provider_model.name
 
-    async def get_orphaned_chunks(self) -> list[Chunk]:
-        result = await self._session.execute(
-            select(ChunkModel).where(ChunkModel.deleted_at.isnot(None))
+    async def get_orphaned_chunks(self, force: bool = False) -> list[Chunk]:
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
+        stmt = (
+            select(ChunkModel)
+            .outerjoin(FileChunkModel, ChunkModel.id == FileChunkModel.chunk_id)
+            .where(FileChunkModel.id.is_(None))
         )
+        if not force:
+            stmt = stmt.where(ChunkModel.created_at < cutoff)
+        result = await self._session.execute(stmt)
         models = result.scalars().all()
         return [
             Chunk(
@@ -357,7 +388,7 @@ class SqlAlchemyMetadataRepository:
 
     async def save_chunk_with_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         size: int,
         sha256: bytes | None,
         external_id: str,
@@ -392,7 +423,7 @@ class SqlAlchemyMetadataRepository:
 
     async def update_chunk_external_id(
         self,
-        chunk_id: str,
+        chunk_id: uuid.UUID,
         external_id: str,
     ) -> None:
         model = await self._session.get(ChunkModel, chunk_id)
@@ -425,9 +456,7 @@ class SqlAlchemyMetadataRepository:
         )
 
     async def get_message_id(self, chunk_id: ChunkId) -> int:
-        result = await self._session.execute(
-            select(ChunkModel).where(ChunkModel.id == str(chunk_id))
-        )
+        result = await self._session.execute(select(ChunkModel).where(ChunkModel.id == chunk_id))
         model = result.scalar_one_or_none()
         if model is None:
             raise KeyError(f"Chunk {chunk_id} not found")
@@ -436,3 +465,11 @@ class SqlAlchemyMetadataRepository:
         if not model.external_id:
             raise KeyError(f"Chunk {chunk_id} has no message_id")
         return int(model.external_id)
+
+    async def hard_delete_chunk(self, chunk_id: uuid.UUID) -> None:
+        model = await self._session.get(ChunkModel, chunk_id)
+        if model is None:
+            return
+        await self._session.delete(model)
+        await self._session.flush()
+        await self._session.commit()

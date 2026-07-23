@@ -156,8 +156,21 @@ class FileManager:
                 raise FileNotFoundError(f"Path not found: {path}")
         return current_id
 
-    async def rename(self, node_id: int, new_name: str) -> None:
+    async def rename(self, node_id: int, new_name: str, new_parent_id: int | None = None) -> None:
         node = await self._metadata.get_node(node_id)
+        parent_id = new_parent_id if new_parent_id is not None else node.parent_id
+        if parent_id is None:
+            raise ValueError("Cannot rename root node")
+
+        try:
+            existing = await self.lookup(parent_id, new_name)
+            if existing.id != node_id:
+                await self._metadata.delete_node(existing.id)
+        except FileNotFoundError:
+            pass
+
+        if new_parent_id is not None and new_parent_id != node.parent_id:
+            node.parent_id = new_parent_id
         node.name = new_name
 
     async def truncate(self, node_id: int, size: int) -> None:
