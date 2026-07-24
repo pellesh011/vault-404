@@ -36,3 +36,9 @@ build/
 # Telethon sessions
 *.session
 *.session-journal
+
+# AI/IDE configs
+.cursor/
+.opencode/
+opencode.json
+AGENTS.md
