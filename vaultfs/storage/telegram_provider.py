@@ -7,8 +7,6 @@ from telethon.tl.types import Channel
 
 from vaultfs.storage.provider import ProviderConfig, StorageProvider
 
-ProxyConfig = dict[str, str | int | bool] | None
-
 
 class TelegramStorageProvider(StorageProvider):
     NAME = "telegram"
@@ -27,13 +25,13 @@ class TelegramStorageProvider(StorageProvider):
         channel_id: int | str | None = None,
         session_name: str = "vault_session",
         max_concurrent: int = 10,
-        proxy: ProxyConfig = None,
+        proxy: Any = None,
         **kwargs: Any,
     ) -> None:
         self._client = TelegramClient(session_name, api_id, api_hash, proxy=proxy)
-        self._client.start(phone=phone)
+        self._client.start(phone=phone or "")
         if channel_id is not None:
-            self._channel = await self._client.get_entity(channel_id)
+            self._channel = cast(Channel, await self._client.get_entity(channel_id))
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
     @property
@@ -46,6 +44,9 @@ class TelegramStorageProvider(StorageProvider):
 
     async def create_chunk(self, data: bytes) -> str:
         self._ensure_initialized()
+        assert self._client is not None
+        assert self._channel is not None
+        assert self._semaphore is not None
         async with self._semaphore:
             uploaded = await self._client.upload_file(data, file_name=f"chunk_{id(data)}")
             message = await self._client.send_file(self._channel, uploaded)
@@ -55,6 +56,9 @@ class TelegramStorageProvider(StorageProvider):
 
     async def get_chunk(self, external_id: str) -> bytes:
         self._ensure_initialized()
+        assert self._client is not None
+        assert self._channel is not None
+        assert self._semaphore is not None
         async with self._semaphore:
             message = await self._client.get_messages(self._channel, ids=int(external_id))
             message = cast(Message | None, message)
@@ -67,6 +71,9 @@ class TelegramStorageProvider(StorageProvider):
 
     async def delete_chunk(self, external_id: str) -> None:
         self._ensure_initialized()
+        assert self._client is not None
+        assert self._channel is not None
+        assert self._semaphore is not None
         async with self._semaphore:
             await self._client.delete_messages(self._channel, [int(external_id)])
 
@@ -74,14 +81,15 @@ class TelegramStorageProvider(StorageProvider):
         if self._client is None:
             return False
         try:
-            await self._client.get_me()
+            client: TelegramClient = self._client
+            await client.get_me()
             return True
         except Exception:
             return False
 
     async def close(self) -> None:
         if self._client is not None:
-            await self._client.disconnect()
+            self._client.disconnect()
             self._client = None
         self._channel = None
         self._semaphore = None

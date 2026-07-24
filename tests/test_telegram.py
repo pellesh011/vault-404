@@ -225,7 +225,7 @@ class TestTelegramStorageProvider:
             "vaultfs.storage.telegram_provider.TelegramClient",
             return_value=mock_client,
         ):
-            mock_client.start = AsyncMock()
+            mock_client.start = MagicMock()
             mock_client.get_entity = AsyncMock(return_value=mock_channel)
             await p.init(
                 api_id=12345,
@@ -243,7 +243,7 @@ class TestTelegramStorageProvider:
         provider: TelegramStorageProvider,
         mock_client: MagicMock,
     ) -> None:
-        mock_client.disconnect = AsyncMock()
+        mock_client.disconnect = MagicMock()
         await provider.close()
 
         assert provider._client is None
