@@ -1,8 +1,8 @@
 import logging
 import os
+import sys
 from pathlib import Path
 
-import pyfuse3
 import trio
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import (
@@ -18,6 +18,7 @@ from vaultfs.application.file_manager import FileManager
 from vaultfs.domain.acl import InMemoryACL
 from vaultfs.domain.chunk_policy import DefaultChunkPolicy
 from vaultfs.infrastructure.asyncio_bridge import AsyncioBridge
+from vaultfs.infrastructure.backend_factory import BackendFactory
 from vaultfs.infrastructure.bridged_repository import (
     BridgedKeyManager,
     BridgedMetadataRepository,
@@ -26,7 +27,6 @@ from vaultfs.infrastructure.bridged_repository import (
 from vaultfs.infrastructure.database.repository import SqlAlchemyMetadataRepository
 from vaultfs.infrastructure.encryption import AESGCMEncryptionLayer
 from vaultfs.infrastructure.key_manager import DatabaseKeyManager
-from vaultfs.infrastructure.vault_fs import VaultFS
 from vaultfs.storage.encryption import KEY_SIZE
 from vaultfs.storage.memory_provider import MemoryStorageProvider
 from vaultfs.storage.provider import ProviderConfig
@@ -46,6 +46,13 @@ def _env_int(key: str, default: int) -> int:
 
 def _env_str(key: str, default: str) -> str:
     return os.getenv(key, default)
+
+
+def _resolve_backend_type() -> str:
+    env_type = os.getenv("FUSE_BACKEND", "").strip().lower()
+    if env_type:
+        return env_type
+    return "pyfuse3"
 
 
 _KEY_FILE = Path.home() / ".vaultfs" / "encryption.key"
@@ -147,7 +154,8 @@ def main() -> None:
     registry = StorageProviderRegistry()
 
     mountpoint = _env_str("MOUNTPOINT", "/mnt/vault")
-    logger.info("Mounting vaultfs at %s", mountpoint)
+    backend_type = _resolve_backend_type()
+    logger.info("Mounting vaultfs at %s (backend=%s)", mountpoint, backend_type)
 
     async def _mount() -> None:
         await bridge.run(_init_telegram(registry, session))
@@ -159,7 +167,6 @@ def main() -> None:
 
         bridged_metadata = BridgedMetadataRepository(db_metadata, bridge)
 
-        # Wrap providers with BridgedStorageProvider for trio compatibility
         for name in list(registry._providers.keys()):
             provider = registry._providers[name]
             registry._providers[name] = BridgedStorageProvider(provider, bridge)
@@ -189,22 +196,19 @@ def main() -> None:
         )
         await file_manager.initialize()
 
-        fuse = VaultFS(file_manager)
-        fuse_options = set(pyfuse3.default_options)
-        fuse_options.add("fsname=vaultfs")
-        fuse_options.add("allow_other")
+        backend = BackendFactory.create(backend_type, file_manager, Path(mountpoint))
 
-        # Clean up stale mount if exists
-        import subprocess
+        if sys.platform != "win32":
+            import subprocess
 
-        subprocess.run(["fusermount", "-u", str(mountpoint)], capture_output=True)
+            subprocess.run(["fusermount", "-u", str(mountpoint)], capture_output=True)
 
-        pyfuse3.init(fuse, str(mountpoint), fuse_options)
+        await backend.mount()
         try:
-            await pyfuse3.main()
+            await backend.run()
         finally:
             try:
-                pyfuse3.close()
+                await backend.close()
             except Exception:
                 pass
             try:
@@ -235,10 +239,10 @@ def main() -> None:
         else:
             logger.exception("Fatal error")
     finally:
-        # Ensure mount is cleaned up
-        import subprocess
+        if sys.platform != "win32":
+            import subprocess
 
-        subprocess.run(["fusermount", "-u", str(mountpoint)], capture_output=True)
+            subprocess.run(["fusermount", "-u", str(mountpoint)], capture_output=True)
         bridge.close()
 
 
