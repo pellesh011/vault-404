@@ -17,7 +17,7 @@ try:
     from refuse.high import FUSE, FuseOSError, LoggingMixIn, Operations
 
     refuse_available = True
-except ImportError:
+except (ImportError, OSError):
     refuse_available = False
     FUSE = None
     FuseOSError = OSError
@@ -219,7 +219,10 @@ class WinFspBackend(FUSEBackend):
     ) -> None:
         if not refuse_available:
             raise ImportError(
-                "refuse is required for WinFsp backend. Install it with: pip install refuse"
+                "refuse is required for WinFsp backend. "
+                "Install it with: pip install refuse\n"
+                "Note: WinFsp backend is designed for Windows. "
+                "On Linux/macOS use FUSE_BACKEND=pyfuse3."
             )
         self._fm = file_manager
         self._mountpoint = mountpoint
