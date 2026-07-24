@@ -3,15 +3,15 @@ services:
     image: postgres:16-alpine
     container_name: vault404-postgres
     environment:
-      POSTGRES_DB: vault404
-      POSTGRES_USER: vault404
-      POSTGRES_PASSWORD: vault404
+      POSTGRES_DB: ${POSTGRES_DB:-vault404}
+      POSTGRES_USER: ${POSTGRES_USER:-vault404}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vault404}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vault404 -d vault404"]
+      test: pg_isready -U ${POSTGRES_USER:-vault404} -d ${POSTGRES_DB:-vault404}
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,8 +24,8 @@ services:
     devices:
       - /dev/fuse  
     environment:
-      WORKGROUP: VAULTFS
-      USER: vaultfs;vaultfs
+      WORKGROUP: ${WORKGROUP:-VAULTFS}
+      USER: ${SAMBA_USER:-vaultfs;vaultfs}
     ports:
       - "445:445"
     volumes:
@@ -37,14 +37,14 @@ services:
     image: postgres:16-alpine
     container_name: vault404-postgres-test
     environment:
-      POSTGRES_DB: vault404_test
-      POSTGRES_USER: vault404
-      POSTGRES_PASSWORD: vault404
+      POSTGRES_DB: ${POSTGRES_TEST_DB:-vault404_test}
+      POSTGRES_USER: ${POSTGRES_USER:-vault404}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vault404}
     ports:
       - "5433:5432"
     tmpfs: /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vault404 -d vault404_test"]
+      test: pg_isready -U ${POSTGRES_USER:-vault404} -d ${POSTGRES_TEST_DB:-vault404_test}
       interval: 3s
       timeout: 3s
       retries: 5
