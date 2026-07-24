@@ -308,22 +308,3 @@ class VaultFS(Operations):
                 logger.exception("setattr: truncate failed")
                 raise FUSEError(errno.EIO)
         return await self.getattr(inode)
-
-
-async def mount_vaultfs(
-    file_manager: FileManager,
-    mountpoint: str,
-    foreground: bool = True,
-) -> None:
-    await file_manager.initialize()
-    fuse = VaultFS(file_manager)
-    fuse_options = set(pyfuse3.default_options)
-    fuse_options.add("fsname=vaultfs")
-    fuse_options.add("allow_other")
-    print("FUSE OPTIONS:", fuse_options)
-    pyfuse3.init(fuse, str(mountpoint), fuse_options)
-    try:
-        if foreground:
-            await pyfuse3.main()
-    finally:
-        pyfuse3.close()
