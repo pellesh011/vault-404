@@ -43,6 +43,15 @@ python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 
+[tool.pyright]
+include = ["vaultfs"]
+exclude = [
+    "**/migrations/**",
+    "**/winfsp_backend.py",
+    "**/telegram_provider.py",
+]
+typeCheckingMode = "basic"
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
