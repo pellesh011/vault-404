@@ -48,7 +48,6 @@ include = ["vaultfs"]
 exclude = [
     "**/migrations/**",
     "**/winfsp_backend.py",
-    "**/telegram_provider.py",
 ]
 typeCheckingMode = "basic"
 
