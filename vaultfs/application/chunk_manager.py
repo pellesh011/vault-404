@@ -67,7 +67,18 @@ class ChunkManager:
                 data = await self._load_chunk(file_chunk.chunk_id, node_id)
 
             logger.debug("ChunkManager.read: loaded chunk, %d bytes", len(data))
-            bytes_to_read = min(remaining, len(data) - chunk_offset)
+            available = len(data) - chunk_offset
+            if available <= 0:
+                logger.warning(
+                    "ChunkManager.read: chunk has %d bytes but chunk_offset=%d, "
+                    "node.chunk_size=%d, current_offset=%d — breaking",
+                    len(data),
+                    chunk_offset,
+                    node.chunk_size,
+                    current_offset,
+                )
+                break
+            bytes_to_read = min(remaining, available)
             result.extend(data[chunk_offset : chunk_offset + bytes_to_read])
 
             current_offset += bytes_to_read
