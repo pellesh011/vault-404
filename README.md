@@ -268,6 +268,7 @@ class AsyncioBridge:
         async def _locked():
             async with self._session_lock:
                 return await coro
+
         future = asyncio.run_coroutine_threadsafe(_locked(), self._loop)
         return await trio.to_thread.run_sync(future.result)
 ```
