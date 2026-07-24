@@ -48,5 +48,6 @@ class ChunkGarbageCollector:
                     chunk.id,
                 )
 
+        await self._metadata.commit()
         logger.info("Cleaned up %d / %d orphaned chunks", cleaned, len(orphaned))
         return cleaned

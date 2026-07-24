@@ -47,7 +47,6 @@ class TelegramStorageProvider(StorageProvider):
     async def create_chunk(self, data: bytes) -> str:
         self._ensure_initialized()
         async with self._semaphore:
-            print(str(data))
             uploaded = await self._client.upload_file(data, file_name=f"chunk_{id(data)}")
             message = await self._client.send_file(self._channel, uploaded)
             message = cast(Message, message)

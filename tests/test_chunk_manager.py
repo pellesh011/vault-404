@@ -38,6 +38,7 @@ class _FakeMetadata:  # type: ignore[no-untyped-def]
         self.delete_node = AsyncMock()
         self.get_orphaned_chunks = AsyncMock(return_value=[])
         self.get_chunk_by_id = AsyncMock(return_value=None)
+        self.update_node = AsyncMock()
 
     async def get_chunks(self, node_id: int) -> list[FileChunk]:
         return list(self._chunks.values())
@@ -99,6 +100,15 @@ class _FakeMetadata:  # type: ignore[no-untyped-def]
         nonce: bytes | None = None,
         auth_tag: bytes | None = None,
     ) -> object:
+        pass
+
+    async def commit(self) -> None:
+        pass
+
+    async def flush(self) -> None:
+        pass
+
+    async def rollback(self) -> None:
         pass
 
 
