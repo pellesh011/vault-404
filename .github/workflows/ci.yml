@@ -50,7 +50,7 @@ jobs:
         ports:
           - 5433:5432
         options: >-
-          --health-cmd pg_isready -U vault404 -d vault404_test
+          --health-cmd "pg_isready -U vault404 -d vault404_test"
           --health-interval 3s
           --health-timeout 3s
           --health-retries 5
