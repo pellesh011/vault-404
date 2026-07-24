@@ -196,7 +196,10 @@ def main() -> None:
         )
         await file_manager.initialize()
 
-        backend = BackendFactory.create(backend_type, file_manager, Path(mountpoint))
+        mountpoint_path = Path(mountpoint)
+        mountpoint_path.mkdir(parents=True, exist_ok=True)
+
+        backend = BackendFactory.create(backend_type, file_manager, mountpoint_path)
 
         if sys.platform != "win32":
             import subprocess
