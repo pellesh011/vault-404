@@ -29,7 +29,7 @@ class TelegramStorageProvider(StorageProvider):
         **kwargs: Any,
     ) -> None:
         self._client = TelegramClient(session_name, api_id, api_hash, proxy=proxy)
-        self._client.start(phone=phone or "")
+        await self._client.start(phone=phone or "")
         if channel_id is not None:
             self._channel = cast(Channel, await self._client.get_entity(channel_id))
         self._semaphore = asyncio.Semaphore(max_concurrent)
